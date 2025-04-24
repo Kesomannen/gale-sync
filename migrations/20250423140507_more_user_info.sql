@@ -1,0 +1,8 @@
+ALTER TABLE users
+ADD COLUMN avatar TEXT NOT NULL;
+
+ALTER TABLE users
+ADD COLUMN discriminator TEXT NOT NULL;
+
+ALTER TABLE users
+ADD COLUMN public_flags INT NOT NULL;

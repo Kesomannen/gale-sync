@@ -1,0 +1,6 @@
+CREATE TABLE oauth_flow (
+    id SERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    state TEXT NOT NULL,
+    completed BOOL NOT NULL DEFAULT FALSE
+);
