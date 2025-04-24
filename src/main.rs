@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use aws_config::Region;
+use axum::Router;
 use dotenvy::dotenv;
 use gale_sync::AppState;
 use sqlx::PgPool;
@@ -48,7 +49,9 @@ async fn main() -> anyhow::Result<()> {
         jwt_secret: env_var("JWT_SECRET")?,
     };
 
-    let app = gale_sync::routes(state).layer(TraceLayer::new_for_http());
+    let app = Router::new()
+        .nest("/api", gale_sync::routes(state))
+        .layer(TraceLayer::new_for_http());
 
     let port = std::env::var("PORT")
         .map(|str| str.parse().expect("PORT variable is not a valid integer"))

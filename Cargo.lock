@@ -1453,6 +1453,7 @@ dependencies = [
  "aws-sdk-s3",
  "axum",
  "axum_typed_multipart",
+ "base64 0.22.1",
  "chrono",
  "dotenvy",
  "hmac",

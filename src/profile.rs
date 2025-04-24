@@ -1,4 +1,7 @@
-use std::io::{Cursor, Read, Seek};
+use std::{
+    fmt::Display,
+    io::{Cursor, Read, Seek},
+};
 
 use anyhow::anyhow;
 use aws_sdk_s3::types::ObjectCannedAcl;
@@ -9,15 +12,17 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
+use tracing::info;
 use uuid::Uuid;
 use zip::ZipArchive;
 
 use crate::{
-    auth::{self, AuthUser},
+    auth::{self, AuthUser, User},
     AppError, AppResult, AppState,
 };
 
@@ -35,6 +40,38 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/{id}", get(download_profile).delete(delete_profile))
         .route("/{id}/meta", get(get_profile_metadata))
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+struct ShortUuid(Uuid);
+
+impl From<Uuid> for ShortUuid {
+    fn from(value: Uuid) -> Self {
+        ShortUuid(value)
+    }
+}
+
+impl Display for ShortUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.pad(&BASE64_URL_SAFE_NO_PAD.encode(&self.0))
+    }
+}
+
+impl From<ShortUuid> for String {
+    fn from(value: ShortUuid) -> Self {
+        format!("{value}")
+    }
+}
+
+impl TryFrom<String> for ShortUuid {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let bytes = BASE64_URL_SAFE_NO_PAD.decode(&value)?;
+        let uuid = Uuid::from_slice(&bytes)?;
+        Ok(ShortUuid(uuid))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,6 +94,7 @@ struct ProfileMod {
 #[serde(rename_all = "camelCase")]
 struct ProfileManifest {
     profile_name: String,
+    #[serde(default)]
     community: Option<String>,
     mods: Vec<ProfileMod>,
 }
@@ -64,7 +102,7 @@ struct ProfileManifest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateProfileResponse {
-    id: Uuid,
+    id: ShortUuid,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -84,12 +122,12 @@ async fn create_profile(
 async fn update_profile(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<ShortUuid>,
     body: Bytes,
 ) -> AppResult<Json<CreateProfileResponse>> {
-    check_permission(id, &user, &state).await?;
+    check_permission(id.0, &user, &state).await?;
 
-    let profile = upload_profile(id, &user, body, &state).await?;
+    let profile = upload_profile(id.0, &user, body, &state).await?;
 
     Ok(Json(profile))
 }
@@ -97,20 +135,20 @@ async fn update_profile(
 async fn delete_profile(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<ShortUuid>,
 ) -> AppResult<StatusCode> {
-    check_permission(id, &user, &state).await?;
+    check_permission(id.0, &user, &state).await?;
 
     let mut tx = state.db.begin().await?;
 
-    sqlx::query!("DELETE FROM profiles WHERE id = $1", id)
+    sqlx::query!("DELETE FROM profiles WHERE id = $1", id.0)
         .execute(&mut *tx)
         .await?;
 
     let res = state
         .s3
         .delete_object()
-        .key(s3_key(id))
+        .key(s3_key(id.0))
         .bucket(BUCKET_NAME)
         .send()
         .await;
@@ -124,6 +162,8 @@ async fn upload_profile(
     body: Bytes,
     state: &AppState,
 ) -> Result<CreateProfileResponse, AppError> {
+    info!("uploading {} bytes", body.len());
+
     let cursor = Cursor::new(body.clone());
     let manifest = tokio::task::spawn_blocking(|| read_manifest(cursor))
         .await
@@ -156,7 +196,7 @@ async fn upload_profile(
     let res = state
         .s3
         .put_object()
-        .key(s3_key(profile.id))
+        .key(s3_key(profile.id.0))
         .bucket(BUCKET_NAME)
         .content_encoding("application/zip")
         .acl(ObjectCannedAcl::PublicRead)
@@ -167,16 +207,35 @@ async fn upload_profile(
     commit_s3_tx(tx, res, || profile).await
 }
 
-fn read_manifest(archive: impl Read + Seek) -> AppResult<ProfileManifest> {
-    let mut zip = ZipArchive::new(archive)
-        .map_err(|err| AppError::bad_request(format!("malformed zip archive: {err}")))?;
+fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
+    let mut input_zip = ZipArchive::new(input)
+        .map_err(|err| AppError::bad_request(format!("Invalid ZIP archive: {err}")))?;
 
-    let manifest = zip
+    let manifest = input_zip
         .by_name("export.r2x")
-        .map_err(|_| AppError::bad_request("export.r2x file is missing"))?;
+        .map_err(|_| AppError::bad_request("Invalid ZIP archive: export.r2x file is missing"))?;
 
     let manifest: ProfileManifest = serde_yml::from_reader(manifest)
-        .map_err(|err| AppError::bad_request(format!("error parsing export.r2x: {err}")))?;
+        .map_err(|err| AppError::bad_request(format!("Error parsing export.r2x: {err}")))?;
+
+    /*
+    let mut output = Vec::new();
+    let mut output_zip = ZipWriter::new(Cursor::new(&mut output));
+
+    let opts = FileOptions::<'_, ()>::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .compression_level(Some(6));
+
+    for i in 0..input_zip.len() {
+        let mut file = input_zip.by_index(i).context("failed to read file")?;
+
+        output_zip
+            .start_file(file.name(), opts)
+            .context("failed to start file")?;
+
+        std::io::copy(&mut file, &mut output_zip).context("failed to re-encode file")?;
+    }
+    */
 
     Ok(manifest)
 }
@@ -211,11 +270,11 @@ async fn commit_s3_tx<T, U>(
     }
 }
 
-async fn download_profile(Path(id): Path<Uuid>) -> AppResult<Redirect> {
+async fn download_profile(Path(id): Path<ShortUuid>) -> AppResult<Redirect> {
     let url = format!(
-        "https://{}.fra1.cdn.digitaloceanspaces.com/{}",
+        "https://{}.fra1.digitaloceanspaces.com/{}",
         BUCKET_NAME,
-        s3_key(id)
+        s3_key(id.0)
     );
 
     Ok(Redirect::to(&url))
@@ -224,25 +283,16 @@ async fn download_profile(Path(id): Path<Uuid>) -> AppResult<Redirect> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProfileMetadata {
-    id: Uuid,
+    id: ShortUuid,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
-    owner: ProfileOwner,
+    owner: User,
     manifest: ProfileManifest,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileOwner {
-    name: String,
-    display_name: String,
-    avatar: String,
-    discord_id: i64,
 }
 
 async fn get_profile_metadata(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<ShortUuid>,
 ) -> AppResult<Json<ProfileMetadata>> {
     let profile = sqlx::query!(
         r#"SELECT
@@ -252,6 +302,7 @@ async fn get_profile_metadata(
             p.mods AS "mods: sqlx::types::Json<Vec<ProfileMod>>",
             p.created_at,
             p.updated_at,
+            u.id AS "owner_id",
             u.name AS "owner_name",
             u.display_name AS "owner_display_name",
             u.avatar,
@@ -259,13 +310,14 @@ async fn get_profile_metadata(
         FROM profiles p
         JOIN users u ON u.id = p.owner_id
         WHERE p.id = $1"#,
-        id
+        id.0
     )
     .map(|record| ProfileMetadata {
         id,
         created_at: record.created_at,
         updated_at: record.updated_at,
-        owner: ProfileOwner {
+        owner: User {
+            id: record.owner_id,
             name: record.owner_name,
             display_name: record.owner_display_name,
             avatar: record.avatar,

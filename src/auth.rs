@@ -13,7 +13,6 @@ use http::StatusCode;
 use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use tracing::info;
 use url::Url;
 use uuid::Uuid;
 
@@ -28,7 +27,8 @@ pub fn routes() -> Router<AppState> {
 }
 
 const DISCORD_API_ENDPOINT: &str = "https://discord.com/api/v10";
-const REDIRECT_URI: &str = "http://localhost:8800/auth/callback";
+const SERVER_REDIRECT_URI: &str = "http://localhost:8800/api/auth/callback";
+const CLIENT_REDIRECT_URI: &str = "http://localhost:22942";
 
 async fn login(State(state): State<AppState>) -> AppResult<Redirect> {
     let uuid = Uuid::new_v4().to_string();
@@ -42,7 +42,7 @@ async fn login(State(state): State<AppState>) -> AppResult<Redirect> {
         .append_pair("response_type", "code")
         .append_pair("client_id", &state.discord_client_id)
         .append_pair("scope", "identify")
-        .append_pair("redirect_uri", REDIRECT_URI)
+        .append_pair("redirect_uri", SERVER_REDIRECT_URI)
         .append_pair("state", &uuid);
 
     Ok(Redirect::to(url.as_str()))
@@ -88,18 +88,25 @@ struct TokenResponse {
 async fn oauth_callback(
     Query(query): Query<CallbackQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<TokenResponse>> {
+) -> AppResult<Redirect> {
     complete_oauth_flow(&query.state, &state).await?;
 
-    request_token_and_create_jwt(
+    let tokens = request_token_and_create_jwt(
         DiscordTokenRequest::AuthorizationCode {
             code: &query.code,
-            redirect_uri: REDIRECT_URI,
+            redirect_uri: SERVER_REDIRECT_URI,
         },
         &state,
     )
-    .await
-    .map(Json)
+    .await?;
+
+    let mut client_redirect = Url::parse(CLIENT_REDIRECT_URI).unwrap();
+    client_redirect
+        .query_pairs_mut()
+        .append_pair("access_token", &tokens.access_token)
+        .append_pair("refresh_token", &tokens.refresh_token);
+
+    Ok(Redirect::to(client_redirect.as_str()))
 }
 
 async fn me(AuthUser(user): AuthUser) -> AppResult<Json<User>> {
@@ -134,7 +141,7 @@ async fn request_token_and_create_jwt(
     let info = get_discord_auth_info(&tokens.access_token, &state).await?;
 
     let user = upsert_discord_user(info.user, &state).await?;
-    let jwt = create_jwt(user, &state)?;
+    let jwt = create_jwt(user.into(), &state)?;
 
     Ok(TokenResponse {
         access_token: jwt,
@@ -207,7 +214,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
             avatar = EXCLUDED.avatar,
             discriminator = EXCLUDED.discriminator,
             public_flags = EXCLUDED.public_flags
-        RETURNING id, name, display_name, discord_id",
+        RETURNING id, name, display_name, discord_id, avatar",
         user.username,
         user.global_name,
         discord_id,
@@ -247,11 +254,12 @@ async fn complete_oauth_flow(query_state: &str, state: &AppState) -> Result<(), 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
-    #[serde(rename = "sub")]
+    #[serde(skip)]
     pub id: i32,
     pub discord_id: i64,
     pub name: String,
     pub display_name: String,
+    pub avatar: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -260,14 +268,49 @@ struct JwtClaims {
     expiration: i64,
 
     #[serde(flatten)]
-    user: User,
+    user: JwtUser,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JwtUser {
+    #[serde(rename = "sub")]
+    id: i32,
+    discord_id: i64,
+    name: String,
+    display_name: String,
+    avatar: String,
+}
+
+impl From<JwtUser> for User {
+    fn from(value: JwtUser) -> Self {
+        User {
+            id: value.id,
+            discord_id: value.discord_id,
+            name: value.name,
+            display_name: value.display_name,
+            avatar: value.avatar,
+        }
+    }
+}
+
+impl From<User> for JwtUser {
+    fn from(value: User) -> Self {
+        JwtUser {
+            id: value.id,
+            discord_id: value.discord_id,
+            name: value.name,
+            display_name: value.display_name,
+            avatar: value.avatar,
+        }
+    }
 }
 
 fn hmac_key(state: &AppState) -> anyhow::Result<Hmac<Sha256>> {
     Hmac::new_from_slice(state.jwt_secret.as_bytes()).context("failed to create encryption key")
 }
 
-fn create_jwt(user: User, state: &AppState) -> AppResult<String> {
+fn create_jwt(user: JwtUser, state: &AppState) -> AppResult<String> {
     const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60);
 
     let key = hmac_key(state)?;
@@ -318,6 +361,6 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let claims = verify_jwt(token, state)?;
 
-        Ok(AuthUser(claims.user))
+        Ok(AuthUser(claims.user.into()))
     }
 }
