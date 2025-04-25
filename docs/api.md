@@ -63,7 +63,7 @@ Requires Authorization.
 
 **Response**
 
-`200 OK` with [User](#types/user).
+`200 OK` with [User](#types).
 
 **Example response**
 
@@ -198,7 +198,7 @@ type ProfileMetadata = {
     "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
   },
   "manifest": {
-    "profileName": "Sync",
+    "profileName": "Default",
     "community": "repo",
     "mods": [
       {
