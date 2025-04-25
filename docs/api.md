@@ -20,7 +20,7 @@ Authorization: Bearer <token>
 API errors are always returned as a JSON object with the following format:
 
 ```ts
-{
+type ApiError = {
     message: string;
 }
 ```
@@ -31,7 +31,7 @@ API errors are always returned as a JSON object with the following format:
 
 Begins the discord OAuth flow.
 
-> ![NOTE]
+> [!NOTE]
 > The authentication flow isn't yet compatible with applications other than Gale.
 
 **Response**
@@ -45,7 +45,7 @@ Callback for Discord OAuth. Should not be called directly.
 **Query Parameters**
 
 ```ts
-{
+type CallbackParameters = {
     code: string; // authorization code to exchange for token
     state: string; // OAuth state parameter
 }
@@ -63,16 +63,7 @@ Requires Authorization.
 
 **Response**
 
-`200 OK`
-
-```ts
-{
-  discordId: number;
-  name: string;
-  displayName: string;
-  avatar: string; // Discord CDN hash
-}
-```
+`200 OK` with [User](#types/user).
 
 **Example response**
 
@@ -92,7 +83,7 @@ Consumes the refresh token to grant new auth tokens.
 **Request body**
 
 ```ts
-{
+type TokenRequest = {
     refreshToken: string;
 }
 ```
@@ -102,13 +93,13 @@ Consumes the refresh token to grant new auth tokens.
 `200 OK`
 
 ```ts
-{
+type TokenResponse = {
     accessToken: string;
     refreshToken: string;
 }
 ```
 
-> ![NOTE]
+> [!NOTE]
 > Once you call this endpoint, the same request token cannot be used again.
 
 ### `POST /profile`
@@ -130,7 +121,7 @@ The max size is currently `2 MiB` (`~2.1 MB`).
 `204 CREATED`
 
 ```ts
-{
+type CreateProfileResponse = {
     id: string;
     created_at: string; // ISO8601
     updated_at: string; // ISO8601
@@ -160,7 +151,7 @@ Same as [`POST /profile`](#post-profile). Note that the `profileName` does not h
 `204 CREATED`
 
 ```ts
-{
+type UpdateProfileResponse = {
     id: string;
     created_at: string; // ISO8601
     updated_at: string; // ISO8601
@@ -184,7 +175,7 @@ Returns metadata about a synced profile.
 **Response**
 
 ```ts
-{
+type ProfileMetadata = {
   id: string;
   createdAt: string;
   updatedAt: string;
@@ -193,12 +184,54 @@ Returns metadata about a synced profile.
 }
 ```
 
+**Example response**
+
+```json
+{
+  "id": "GsioqKpVRwiP7_ynX-QsuA",
+  "createdAt": "2025-04-25T07:08:52.076422Z",
+  "updatedAt": "2025-04-25T08:33:22.669857Z",
+  "owner": {
+    "discordId": 308117922260451300,
+    "name": "kesomannen",
+    "displayName": "Bobbo ::)",
+    "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
+  },
+  "manifest": {
+    "profileName": "Sync",
+    "community": "repo",
+    "mods": [
+      {
+        "name": "BepInEx-BepInExPack",
+        "enabled": true,
+        "version": {
+          "major": 5,
+          "minor": 4,
+          "patch": 2100
+        }
+      }
+    ]
+  }
+}
+```
+
 ## Types
+
+### `User`
+
+```ts
+type User = {
+  discordId: number;
+  name: string;
+  displayName: string;
+  avatar: string; // Discord CDN hash
+}
+```
 
 ### `ProfileManifest`
 
 ```ts
-{
+type ProfileManifest = {
     profileName: string;
     community?: string | null; // URL slug of a Thunderstore community
     mods: {
