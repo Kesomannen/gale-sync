@@ -21,7 +21,6 @@ pub struct AppState {
 
 pub fn routes(state: AppState) -> Router {
     Router::new()
-        .route("/", get(move || async { "Hello, world!" }))
         .nest("/auth", auth::routes())
         .nest("/profile", profile::routes())
         .with_state(state)
