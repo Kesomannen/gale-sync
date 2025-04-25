@@ -123,8 +123,8 @@ The max size is currently `2 MiB` (`~2.1 MB`).
 ```ts
 type CreateProfileResponse = {
     id: string;
-    created_at: string; // ISO8601
-    updated_at: string; // ISO8601
+    createdAt: string; // ISO8601
+    updatedAt: string; // ISO8601
 }
 ```
 
@@ -153,8 +153,8 @@ Same as [`POST /profile`](#post-profile). Note that the `profileName` does not h
 ```ts
 type UpdateProfileResponse = {
     id: string;
-    created_at: string; // ISO8601
-    updated_at: string; // ISO8601
+    createdAt: string; // ISO8601
+    updatedAt: string; // ISO8601
 }
 ```
 
