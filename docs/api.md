@@ -87,7 +87,7 @@ Requires Authorization.
 
 ### `POST /auth/token`
 
-Grants new auth tokens.
+Consumes the refresh token to grant new auth tokens.
 
 **Request body**
 
