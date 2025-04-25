@@ -26,7 +26,7 @@ use crate::{
     AppError, AppResult, AppState,
 };
 
-const SIZE_LIMIT: usize = 1024 * 1024;
+const SIZE_LIMIT: usize = 2 * 1024 * 1024;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -141,9 +141,13 @@ async fn delete_profile(
 
     let mut tx = state.db.begin().await?;
 
-    sqlx::query!("DELETE FROM profiles WHERE id = $1", id.0)
-        .execute(&mut *tx)
-        .await?;
+    let _ = sqlx::query!(
+        "DELETE FROM profiles WHERE id = $1 RETURNING updated_at",
+        id.0
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let res = state
         .s3
@@ -162,8 +166,6 @@ async fn upload_profile(
     body: Bytes,
     state: &AppState,
 ) -> Result<CreateProfileResponse, AppError> {
-    info!("uploading {} bytes", body.len());
-
     let cursor = Cursor::new(body.clone());
     let manifest = tokio::task::spawn_blocking(|| read_manifest(cursor))
         .await
@@ -270,11 +272,26 @@ async fn commit_s3_tx<T, U>(
     }
 }
 
-async fn download_profile(Path(id): Path<ShortUuid>) -> AppResult<Redirect> {
+async fn download_profile(
+    Path(id): Path<ShortUuid>,
+    State(state): State<AppState>,
+) -> AppResult<Redirect> {
+    let profile = sqlx::query!(
+        "UPDATE profiles
+            SET downloads = downloads + 1
+        WHERE id = $1
+        RETURNING updated_at",
+        id.0
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
     let url = format!(
-        "https://{}.fra1.digitaloceanspaces.com/{}",
+        "https://{}.fra1.cdn.digitaloceanspaces.com/{}?v={}",
         BUCKET_NAME,
-        s3_key(id.0)
+        s3_key(id.0),
+        profile.updated_at.timestamp()
     );
 
     Ok(Redirect::to(&url))

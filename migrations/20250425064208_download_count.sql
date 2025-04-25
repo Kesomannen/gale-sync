@@ -1,0 +1,2 @@
+ALTER TABLE profiles
+ADD COLUMN downloads INT NOT NULL DEFAULT 0;
