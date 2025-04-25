@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::borrow::Cow;
 
 use axum::{
     http::StatusCode,
@@ -28,19 +28,8 @@ pub enum AppError {
     })]
     Unauthorized { reason: Option<CowStr> },
 
-    #[error("{}", match reason {
-        Some(reason) => reason,
-        None => "Conflict."
-    })]
-    Conflict { reason: Option<CowStr> },
-
     #[error("Forbidden.")]
     Forbidden,
-
-    #[error("Unprocessable entity.")]
-    Unprocessable {
-        errors: BTreeMap<CowStr, Vec<CowStr>>,
-    },
 
     #[error("Something went wrong.")]
     Sqlx(#[from] sqlx::Error),
@@ -65,20 +54,12 @@ impl AppError {
         }
     }
 
-    pub fn conflict(reason: impl Into<CowStr>) -> Self {
-        AppError::Conflict {
-            reason: Some(reason.into()),
-        }
-    }
-
     fn status(&self) -> StatusCode {
         match self {
             AppError::NotFound => StatusCode::NOT_FOUND,
             AppError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             AppError::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
-            AppError::Conflict { .. } => StatusCode::CONFLICT,
             AppError::Forbidden => StatusCode::FORBIDDEN,
-            AppError::Unprocessable { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::Sqlx(_) | AppError::Reqwest(_) | AppError::Other(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -97,9 +78,6 @@ impl IntoResponse for AppError {
             AppError::Sqlx(err) => tracing::error!("database error: {err:#}"),
             AppError::Reqwest(err) => tracing::error!("http error: {err:#}"),
             AppError::Other(err) => tracing::error!("unexpected server error: {err:#}"),
-            AppError::Unprocessable { errors } => {
-                return (self.status(), Json(errors)).into_response()
-            }
             _ => (),
         }
 
@@ -113,6 +91,7 @@ impl IntoResponse for AppError {
     }
 }
 
+/*
 pub trait ResultExt<T>
 where
     Self: Sized,
@@ -156,3 +135,4 @@ impl<T> ResultExt<T> for Result<T, sqlx::Error> {
         }
     }
 }
+    */

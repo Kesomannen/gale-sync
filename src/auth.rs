@@ -55,6 +55,7 @@ struct CallbackQuery {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(unused)]
 struct DiscordTokens {
     token_type: String,
     access_token: String,
@@ -137,11 +138,11 @@ async fn request_token_and_create_jwt(
     req: DiscordTokenRequest<'_>,
     state: &AppState,
 ) -> AppResult<TokenResponse> {
-    let tokens = get_discord_token(req, &state).await?;
-    let info = get_discord_auth_info(&tokens.access_token, &state).await?;
+    let tokens = get_discord_token(req, state).await?;
+    let info = get_discord_auth_info(&tokens.access_token, state).await?;
 
-    let user = upsert_discord_user(info.user, &state).await?;
-    let jwt = create_jwt(user.into(), &state)?;
+    let user = upsert_discord_user(info.user, state).await?;
+    let jwt = create_jwt(user.into(), state)?;
 
     Ok(TokenResponse {
         access_token: jwt,

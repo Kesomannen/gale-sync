@@ -17,7 +17,6 @@ use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::Postgres;
-use tracing::info;
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -54,7 +53,7 @@ impl From<Uuid> for ShortUuid {
 
 impl Display for ShortUuid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.pad(&BASE64_URL_SAFE_NO_PAD.encode(&self.0))
+        f.pad(&BASE64_URL_SAFE_NO_PAD.encode(self.0))
     }
 }
 
