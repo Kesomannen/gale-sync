@@ -69,7 +69,7 @@ Requires Authorization.
 
 ```json
 {
-  "discordId": 308117922260451300,
+  "discordId": "308117922260451300",
   "name": "kesomannen",
   "displayName": "Bobbo ::)",
   "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
@@ -192,7 +192,7 @@ type ProfileMetadata = {
   "createdAt": "2025-04-25T07:08:52.076422Z",
   "updatedAt": "2025-04-25T08:33:22.669857Z",
   "owner": {
-    "discordId": 308117922260451300,
+    "discordId": "308117922260451300",
     "name": "kesomannen",
     "displayName": "Bobbo ::)",
     "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
@@ -221,7 +221,7 @@ type ProfileMetadata = {
 
 ```ts
 type User = {
-  discordId: number;
+  discordId: string;
   name: string;
   displayName: string;
   avatar: string; // Discord CDN hash

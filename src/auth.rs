@@ -202,8 +202,6 @@ async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResul
 }
 
 async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<User> {
-    let discord_id: i64 = user.id.parse().context("invalid discord id")?;
-
     let user = sqlx::query_as!(
         User,
         "INSERT INTO users (name, display_name, discord_id, avatar, discriminator, public_flags)
@@ -218,7 +216,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
         RETURNING id, name, display_name, discord_id, avatar",
         user.username,
         user.global_name,
-        discord_id,
+        user.id,
         user.avatar,
         user.discriminator,
         user.public_flags as i32,
@@ -257,7 +255,7 @@ async fn complete_oauth_flow(query_state: &str, state: &AppState) -> Result<(), 
 pub struct User {
     #[serde(skip)]
     pub id: i32,
-    pub discord_id: i64,
+    pub discord_id: String,
     pub name: String,
     pub display_name: String,
     pub avatar: String,
@@ -277,7 +275,7 @@ struct JwtClaims {
 pub struct JwtUser {
     #[serde(rename = "sub")]
     id: i32,
-    discord_id: i64,
+    discord_id: String,
     name: String,
     display_name: String,
     avatar: String,

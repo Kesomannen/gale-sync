@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{routing::get, Router};
+use axum::Router;
 use sqlx::PgPool;
 
 mod auth;
