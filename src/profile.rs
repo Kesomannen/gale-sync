@@ -287,8 +287,9 @@ async fn download_profile(
     .ok_or(AppError::NotFound)?;
 
     let url = format!(
-        "https://{}.fra1.cdn.digitaloceanspaces.com/{}?v={}",
+        "https://{}.{}/{}?v={}",
         BUCKET_NAME,
+        state.cdn_domain,
         s3_key(id.0),
         profile.updated_at.timestamp()
     );

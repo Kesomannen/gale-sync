@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE oauth_flow SET completed = TRUE WHERE state = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f2a90a26feb90307d883002f9127ec5e19e7c66cee12b6849299aaddcfd59100"
+}

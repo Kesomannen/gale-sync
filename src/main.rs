@@ -9,13 +9,13 @@ use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 
-const DEFAULT_PORT: u16 = 8800;
+const DEFAULT_PORT: u16 = 80;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
-    let log_level = std::env::var("LOG_LEVEL")
+    let log_level = env_var("LOG_LEVEL")
         .map(|str| {
             str.parse()
                 .expect("LOG_LEVEL variable is not a valid log level")
@@ -33,8 +33,8 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!().run(&db).await?;
 
     let config = aws_config::from_env()
-        .region(Region::new("fra1"))
-        .endpoint_url("https://fra1.digitaloceanspaces.com")
+        .region(Region::new(env_var("S3_REGION")?))
+        .endpoint_url(env_var("S3_ENDPOINT")?)
         .load()
         .await;
 
@@ -44,16 +44,17 @@ async fn main() -> anyhow::Result<()> {
         db,
         s3,
         http: reqwest::Client::new(),
-        discord_client_id: env_var("DISCORD_CLIENT_ID")?,
-        discord_client_secret: env_var("DISCORD_CLIENT_SECRET")?,
-        jwt_secret: env_var("JWT_SECRET")?,
+        discord_client_id: env_var_arc("DISCORD_CLIENT_ID")?,
+        discord_client_secret: env_var_arc("DISCORD_CLIENT_SECRET")?,
+        jwt_secret: env_var_arc("JWT_SECRET")?,
+        cdn_domain: env_var_arc("CDN_DOMAIN")?,
     };
 
     let app = Router::new()
         .nest("/api", gale_sync::routes(state))
         .layer(TraceLayer::new_for_http());
 
-    let port = std::env::var("PORT")
+    let port = env_var("PORT")
         .map(|str| str.parse().expect("PORT variable is not a valid integer"))
         .unwrap_or(DEFAULT_PORT);
 
@@ -65,9 +66,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn env_var(name: &str) -> anyhow::Result<Arc<str>> {
-    match std::env::var(name) {
-        Ok(str) => Ok(str.into()),
-        Err(_) => Err(anyhow!("{name} is not set")),
-    }
+fn env_var_arc(name: &str) -> anyhow::Result<Arc<str>> {
+    env_var(name).map(Into::into)
+}
+
+fn env_var(name: &str) -> anyhow::Result<String> {
+    std::env::var(name).map_err(|_| anyhow!("{name} is not set"))
 }

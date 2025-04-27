@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO profiles (id, owner_id, name, community, mods)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT(id)\n        DO UPDATE SET\n            name = EXCLUDED.name,\n            mods = EXCLUDED.mods,\n            updated_at = NOW()\n        RETURNING id, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e977977aceeebc8ae0fdd58f319ccb68d88f7d57efb9b9be1e03374136f482a6"
+}

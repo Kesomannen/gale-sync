@@ -1,0 +1,51 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO users (name, display_name, discord_id, avatar, discriminator, public_flags)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT(discord_id)\n        DO UPDATE SET\n            name = EXCLUDED.name,\n            display_name = EXCLUDED.display_name,\n            avatar = EXCLUDED.avatar,\n            discriminator = EXCLUDED.discriminator,\n            public_flags = EXCLUDED.public_flags\n        RETURNING id, name, display_name, discord_id, avatar",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "discord_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3b4b758d8ff005f60ac59c96efc6a7658f795c2ef64b04cb5dfb0dc435ee7087"
+}

@@ -17,6 +17,7 @@ pub struct AppState {
     pub discord_client_id: Arc<str>,
     pub discord_client_secret: Arc<str>,
     pub jwt_secret: Arc<str>,
+    pub cdn_domain: Arc<str>,
 }
 
 pub fn routes(state: AppState) -> Router {
