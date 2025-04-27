@@ -1,0 +1,27 @@
+# fly.toml app configuration file generated for gale-sync on 2025-04-27T12:50:41+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'gale-sync'
+primary_region = 'fra'
+
+[build]
+
+[env]
+  PORT = '8080'
+  S3_REGION = 'fra1'
+  S3_ENDPOINT = 'https://fra1.digitaloceanspaces.com'
+  CDN_DOMAIN = 'fra1.cdn.digitaloceanspaces.com'
+  LOG_LEVEL = 'debug'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  size = 'shared-cpu-1x'

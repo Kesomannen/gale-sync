@@ -9,7 +9,7 @@ use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 
-const DEFAULT_PORT: u16 = 80;
+const DEFAULT_PORT: u16 = 8080;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

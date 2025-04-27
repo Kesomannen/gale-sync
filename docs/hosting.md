@@ -14,4 +14,4 @@
 | `S3_ENDPOINT`           | Full URL of the S3 endpoint                  | *           |
 | `CDN_DOMAIN`            | Domain name of the CDN to use in front of S3 | *           |
 | `LOG_LEVEL`             | Max log level                                | `INFO`      |
-| `PORT`                  | Port to listen at                            | 80          |
+| `PORT`                  | Port to listen at                            | 8080        |
