@@ -1,0 +1,11 @@
+CREATE TABLE test_users (
+    id SERIAL PRIMARY KEY,
+    discord_id TEXT NOT NULL
+);
+
+INSERT INTO test_users (discord_id)
+VALUES
+    ('308117922260451340'),
+    ('615498193676926988'),
+    ('810556327348535357'),
+    ('479184695871930368');

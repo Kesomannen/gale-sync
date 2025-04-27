@@ -207,6 +207,19 @@ async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResul
 }
 
 async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<User> {
+    let is_test_user = sqlx::query!(
+        "SELECT EXISTS(SELECT 1 FROM test_users WHERE discord_id = $1)",
+        user.id
+    )
+    .fetch_one(&state.db)
+    .await?
+    .exists
+    .unwrap_or(false);
+
+    if !is_test_user {
+        return Err(AppError::Forbidden);
+    }
+
     let user = sqlx::query_as!(
         User,
         "INSERT INTO users (name, display_name, discord_id, avatar, discriminator, public_flags)
