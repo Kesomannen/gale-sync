@@ -3,9 +3,13 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::{
     extract::{FromRequestParts, Query, State},
-    response::Redirect,
+    response::{Html, Redirect},
     routing::{get, post},
     Json, Router,
+};
+use axum_extra::extract::{
+    cookie::{Cookie, SameSite},
+    CookieJar,
 };
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
@@ -27,7 +31,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 const DISCORD_API_ENDPOINT: &str = "https://discord.com/api/v10";
-const CLIENT_REDIRECT_URI: &str = "http://localhost:22942";
+const CLIENT_REDIRECT_URI: &str = "gale://auth/callback";
 
 #[cfg(debug_assertions)]
 const SERVER_REDIRECT_URI: &str = "http://localhost:8080/api/auth/callback";
@@ -35,12 +39,11 @@ const SERVER_REDIRECT_URI: &str = "http://localhost:8080/api/auth/callback";
 #[cfg(not(debug_assertions))]
 const SERVER_REDIRECT_URI: &str = "http://gale.kesomannen.com/api/auth/callback";
 
-async fn login(State(state): State<AppState>) -> AppResult<Redirect> {
-    let uuid = Uuid::new_v4().to_string();
-
-    sqlx::query!("INSERT INTO oauth_flow (state) VALUES ($1)", uuid)
-        .execute(&state.db)
-        .await?;
+async fn login(
+    State(state): State<AppState>,
+    mut cookies: CookieJar,
+) -> AppResult<(CookieJar, Redirect)> {
+    let oauth_state = Uuid::new_v4().to_string();
 
     let mut url = Url::parse(&format!("{DISCORD_API_ENDPOINT}/oauth2/authorize")).unwrap();
     url.query_pairs_mut()
@@ -48,9 +51,15 @@ async fn login(State(state): State<AppState>) -> AppResult<Redirect> {
         .append_pair("client_id", &state.discord_client_id)
         .append_pair("scope", "identify")
         .append_pair("redirect_uri", SERVER_REDIRECT_URI)
-        .append_pair("state", &uuid);
+        .append_pair("state", &oauth_state);
 
-    Ok(Redirect::to(url.as_str()))
+    let mut cookie = Cookie::new("state", oauth_state);
+    cookie.set_same_site(SameSite::Lax);
+    cookie.set_secure(true);
+    cookie.set_http_only(true);
+    cookies = cookies.add(cookie);
+
+    Ok((cookies, Redirect::to(url.as_str())))
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,8 +103,16 @@ struct TokenResponse {
 async fn oauth_callback(
     Query(query): Query<CallbackQuery>,
     State(state): State<AppState>,
-) -> AppResult<Redirect> {
-    complete_oauth_flow(&query.state, &state).await?;
+    cookies: CookieJar,
+) -> AppResult<Html<String>> {
+    let auth_state = cookies
+        .get("state")
+        .ok_or(AppError::bad_request("OAuth state cookie is missing."))?
+        .value();
+
+    if auth_state != query.state {
+        return Err(AppError::bad_request("OAuth state cookie is invalid."));
+    }
 
     let tokens = request_token_and_create_jwt(
         DiscordTokenRequest::AuthorizationCode {
@@ -106,13 +123,11 @@ async fn oauth_callback(
     )
     .await?;
 
-    let mut client_redirect = Url::parse(CLIENT_REDIRECT_URI).unwrap();
-    client_redirect
-        .query_pairs_mut()
-        .append_pair("access_token", &tokens.access_token)
-        .append_pair("refresh_token", &tokens.refresh_token);
+    let html = include_str!("./redirect.html")
+        .replace("%access_token%", &tokens.access_token)
+        .replace("%refresh_token%", &tokens.refresh_token);
 
-    Ok(Redirect::to(client_redirect.as_str()))
+    Ok(Html(html))
 }
 
 async fn me(AuthUser(user): AuthUser) -> AppResult<Json<User>> {
@@ -243,29 +258,6 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
     .await?;
 
     Ok(user)
-}
-
-async fn complete_oauth_flow(query_state: &str, state: &AppState) -> Result<(), AppError> {
-    let session = sqlx::query!(
-        "SELECT completed FROM oauth_flow WHERE state = $1",
-        query_state
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden)?;
-
-    if session.completed {
-        return Err(AppError::Forbidden);
-    }
-
-    sqlx::query!(
-        "UPDATE oauth_flow SET completed = TRUE WHERE state = $1",
-        query_state
-    )
-    .execute(&state.db)
-    .await?;
-
-    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
