@@ -1,5 +1,7 @@
 # API Docs
 
+Base URL: `https://gale.kesomannen.com/api`
+
 ## Authentication
 
 Discord OAuth is used to authenticate users.
@@ -7,7 +9,7 @@ Discord OAuth is used to authenticate users.
 Once the user is authenticated, two tokens are created:
 
 - The `access token` is a [JWT](https://jwt.io) that is used to authorize the user when accessing restricted endpoints. This token expires quickly (currently 30 minutes).
-- The `refresh token` is used to request a new access token once it expires.
+- The `refresh token` is used to request a new access token once it expires. It is issued by Discord and much longer lived.
 
 To use restricted endpoints, include the access token as a header:
 
@@ -21,8 +23,8 @@ API errors are always returned as a JSON object with the following format:
 
 ```ts
 type ApiError = {
-    message: string;
-}
+  message: string;
+};
 ```
 
 ## Enpoints
@@ -46,9 +48,9 @@ Callback for Discord OAuth. Should not be called directly.
 
 ```ts
 type CallbackParameters = {
-    code: string; // authorization code to exchange for token
-    state: string; // OAuth state parameter
-}
+  code: string; // authorization code to exchange for token
+  state: string; // OAuth state parameter
+};
 ```
 
 **Response**
@@ -84,8 +86,8 @@ Consumes the refresh token to grant new auth tokens.
 
 ```ts
 type TokenRequest = {
-    refreshToken: string;
-}
+  refreshToken: string;
+};
 ```
 
 **Response**
@@ -94,9 +96,9 @@ type TokenRequest = {
 
 ```ts
 type TokenResponse = {
-    accessToken: string;
-    refreshToken: string;
-}
+  accessToken: string;
+  refreshToken: string;
+};
 ```
 
 > [!NOTE]
@@ -122,10 +124,10 @@ The max size is currently `2 MiB` (`~2.1 MB`).
 
 ```ts
 type CreateProfileResponse = {
-    id: string;
-    createdAt: string; // ISO8601
-    updatedAt: string; // ISO8601
-}
+  id: string;
+  createdAt: string; // ISO8601
+  updatedAt: string; // ISO8601
+};
 ```
 
 ### `GET /profile/{id}`
@@ -152,10 +154,10 @@ Same as [`POST /profile`](#post-profile). Note that the `profileName` does not h
 
 ```ts
 type UpdateProfileResponse = {
-    id: string;
-    createdAt: string; // ISO8601
-    updatedAt: string; // ISO8601
-}
+  id: string;
+  createdAt: string; // ISO8601
+  updatedAt: string; // ISO8601
+};
 ```
 
 ### `DELETE /profile/{id}`
@@ -181,7 +183,7 @@ type ProfileMetadata = {
   updatedAt: string;
   owner: User;
   manifest: ProfileManifest;
-}
+};
 ```
 
 **Example response**
@@ -225,23 +227,23 @@ type User = {
   name: string;
   displayName: string;
   avatar: string; // Discord CDN hash
-}
+};
 ```
 
 ### `ProfileManifest`
 
 ```ts
 type ProfileManifest = {
-    profileName: string;
-    community?: string | null; // URL slug of a Thunderstore community
-    mods: {
-        name: string; // formatted as `namespace-name`
-        enabled: boolean;
-        version: {
-            major: number;
-            minor: number;
-            patch: number;
-        }
-    }[];
-}
+  profileName: string;
+  community?: string | null; // URL slug of a Thunderstore community
+  mods: {
+    name: string; // formatted as `namespace-name`
+    enabled: boolean;
+    version: {
+      major: number;
+      minor: number;
+      patch: number;
+    };
+  }[];
+};
 ```
