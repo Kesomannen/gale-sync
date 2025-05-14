@@ -31,7 +31,6 @@ pub fn routes() -> Router<AppState> {
 }
 
 const DISCORD_API_ENDPOINT: &str = "https://discord.com/api/v10";
-const CLIENT_REDIRECT_URI: &str = "gale://auth/callback";
 
 #[cfg(debug_assertions)]
 const SERVER_REDIRECT_URI: &str = "http://localhost:8080/api/auth/callback";

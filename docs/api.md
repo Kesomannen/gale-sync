@@ -55,7 +55,7 @@ type CallbackParameters = {
 
 **Response**
 
-`302 Redirect` to `http://localhost:22942?access_token=Xrefresh_token=X`. This port is used by the Gale app to receive the token.
+`302 Redirect` to `gale://auth/callback?access_token=Xrefresh_token=X`. This deep link is handled by the Gale app to receive the token.
 
 ### `GET /auth/me`
 
