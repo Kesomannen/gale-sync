@@ -6,7 +6,7 @@ use axum::Router;
 use dotenvy::dotenv;
 use gale_sync::AppState;
 use sqlx::PgPool;
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{info, Level};
 
 const DEFAULT_PORT: u16 = 8080;
@@ -52,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .nest("/api", gale_sync::routes(state))
+        .fallback_service(ServeDir::new("public"))
         .layer(TraceLayer::new_for_http());
 
     let port = env_var("PORT")

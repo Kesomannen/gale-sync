@@ -111,7 +111,7 @@ async fn oauth_callback(
         .value();
 
     if auth_state != query.state {
-        return Err(AppError::bad_request("OAuth state cookie is invalid."));
+        return Err(AppError::bad_request("OAuth state parameter is invalid."));
     }
 
     let tokens = request_token_and_create_jwt(
@@ -123,7 +123,7 @@ async fn oauth_callback(
     )
     .await?;
 
-    let html = include_str!("./redirect.html")
+    let html = include_str!("../assets/redirect.html")
         .replace("%access_token%", &tokens.access_token)
         .replace("%refresh_token%", &tokens.refresh_token);
 
