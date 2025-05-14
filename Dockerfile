@@ -16,6 +16,7 @@ RUN cargo build --release --bin gale-sync
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
-RUN apt-get update && apt-get install -y libssl3 ca-certificates && apt-get clean
+RUN apt-get update && apt-get install -y libssl3 ca-certificates && apt-get clean && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/gale-sync /usr/local/bin
+COPY public ./public
 ENTRYPOINT ["/usr/local/bin/gale-sync"]
