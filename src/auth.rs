@@ -17,6 +17,7 @@ use http::StatusCode;
 use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use tracing::warn;
 use url::Url;
 use uuid::Uuid;
 
@@ -231,6 +232,10 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
     .unwrap_or(false);
 
     if !is_test_user {
+        warn!(
+            "user {} tried to log in but wasn't whitelisted!",
+            user.global_name
+        );
         return Err(AppError::Forbidden);
     }
 
