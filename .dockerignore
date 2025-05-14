@@ -4,3 +4,5 @@
 !migrations/
 !Cargo.toml
 !Cargo.lock
+!public/
+!assets/
