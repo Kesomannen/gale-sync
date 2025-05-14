@@ -250,7 +250,9 @@ async fn check_permission(id: Uuid, user: &auth::User, state: &AppState) -> Resu
     if profile.owner_id == user.id {
         Ok(())
     } else {
-        Err(AppError::Forbidden)
+        Err(AppError::forbidden(
+            "User is not the owner of this profile.",
+        ))
     }
 }
 

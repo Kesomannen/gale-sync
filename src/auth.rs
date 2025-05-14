@@ -236,7 +236,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
             "user {} tried to log in but wasn't whitelisted!",
             user.global_name
         );
-        return Err(AppError::Forbidden);
+        return Err(AppError::forbidden("Profile sync is currently only available to test users. Request beta access on Discord or come back later!"));
     }
 
     let user = sqlx::query_as!(

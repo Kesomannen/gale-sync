@@ -28,8 +28,11 @@ pub enum AppError {
     })]
     Unauthorized { reason: Option<CowStr> },
 
-    #[error("Forbidden.")]
-    Forbidden,
+    #[error("{}", match reason {
+        Some(reason) => reason,
+        None => "Forbidden."
+    })]
+    Forbidden { reason: Option<CowStr> },
 
     #[error("Something went wrong.")]
     Sqlx(#[from] sqlx::Error),
@@ -54,12 +57,18 @@ impl AppError {
         }
     }
 
+    pub fn forbidden(reason: impl Into<CowStr>) -> Self {
+        AppError::Forbidden {
+            reason: Some(reason.into()),
+        }
+    }
+
     fn status(&self) -> StatusCode {
         match self {
             AppError::NotFound => StatusCode::NOT_FOUND,
             AppError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             AppError::Unauthorized { .. } => StatusCode::UNAUTHORIZED,
-            AppError::Forbidden => StatusCode::FORBIDDEN,
+            AppError::Forbidden { .. } => StatusCode::FORBIDDEN,
             AppError::Sqlx(_) | AppError::Reqwest(_) | AppError::Other(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
