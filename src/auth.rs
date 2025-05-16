@@ -159,7 +159,9 @@ async fn request_token_and_create_jwt(
     state: &AppState,
 ) -> AppResult<TokenResponse> {
     let tokens = get_discord_token(req, state).await?;
-    let info = get_discord_auth_info(&tokens.access_token, state).await?;
+    let info = get_discord_auth_info(&tokens.access_token, state)
+        .await
+        .context("error fetching discord auth info")?;
 
     let user = upsert_discord_user(info.user, state).await?;
     let jwt = create_jwt(user.into(), state)?;
@@ -192,7 +194,8 @@ async fn get_discord_token(
         .form(&req)
         .basic_auth(&state.discord_client_id, Some(&state.discord_client_secret))
         .send()
-        .await?
+        .await
+        .context("error sending discord token request")?
         .error_for_status();
 
     match res {

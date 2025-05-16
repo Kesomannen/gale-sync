@@ -27,18 +27,7 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(log_level)
         .init();
 
-    let db_url = env_var("DATABASE_URL")?;
-    let db = PgPool::connect(&db_url).await?;
-
-    sqlx::migrate!().run(&db).await?;
-
-    let config = aws_config::from_env()
-        .region(Region::new(env_var("S3_REGION")?))
-        .endpoint_url(env_var("S3_ENDPOINT")?)
-        .load()
-        .await;
-
-    let s3 = aws_sdk_s3::Client::new(&config);
+    let (db, s3) = tokio::try_join!(setup_db(), setup_s3(),)?;
 
     let state = AppState {
         db,
@@ -65,6 +54,25 @@ async fn main() -> anyhow::Result<()> {
 
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+async fn setup_db() -> anyhow::Result<PgPool> {
+    let db_url = env_var("DATABASE_URL")?;
+    let db = PgPool::connect(&db_url).await?;
+
+    sqlx::migrate!().run(&db).await?;
+    Ok(db)
+}
+
+async fn setup_s3() -> anyhow::Result<aws_sdk_s3::Client> {
+    let config = aws_config::from_env()
+        .region(Region::new(env_var("S3_REGION")?))
+        .endpoint_url(env_var("S3_ENDPOINT")?)
+        .load()
+        .await;
+
+    let s3 = aws_sdk_s3::Client::new(&config);
+    Ok(s3)
 }
 
 fn env_var_arc(name: &str) -> anyhow::Result<Arc<str>> {
