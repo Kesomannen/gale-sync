@@ -105,12 +105,12 @@ async fn oauth_callback(
     State(state): State<AppState>,
     cookies: CookieJar,
 ) -> AppResult<Html<String>> {
-    let auth_state = cookies
+    let oauth_state = cookies
         .get("state")
         .ok_or(AppError::bad_request("OAuth state cookie is missing."))?
         .value();
 
-    if auth_state != query.state {
+    if oauth_state != query.state {
         return Err(AppError::bad_request("OAuth state parameter is invalid."));
     }
 
@@ -123,6 +123,8 @@ async fn oauth_callback(
     )
     .await?;
 
+    // This redirect page sends the user to `gale://auth/callback`
+    // to let the app receive the tokens.
     let html = include_str!("../assets/redirect.html")
         .replace("%access_token%", &tokens.access_token)
         .replace("%refresh_token%", &tokens.refresh_token);
@@ -130,6 +132,9 @@ async fn oauth_callback(
     Ok(Html(html))
 }
 
+// Maybe this is unneccessary, since all it's doing is decoding the
+// JWT (which the client already has). However I think it's nice for
+// anyone who doesn't bother implementing that themselves.
 async fn me(AuthUser(user): AuthUser) -> AppResult<Json<User>> {
     Ok(Json(user))
 }
@@ -239,6 +244,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
             "user {} tried to log in but wasn't whitelisted!",
             user.global_name
         );
+        // TODO: nicer redirect since this is shown in browsers
         return Err(AppError::forbidden("Profile sync is currently only available to test users. Request beta access on Discord or come back later!"));
     }
 
@@ -270,6 +276,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
+    // don't expose the id
     #[serde(skip)]
     pub id: i32,
     pub discord_id: String,
@@ -327,7 +334,7 @@ fn hmac_key(state: &AppState) -> anyhow::Result<Hmac<Sha256>> {
 }
 
 fn create_jwt(user: JwtUser, state: &AppState) -> AppResult<String> {
-    const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60);
+    const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
     let key = hmac_key(state)?;
     let claims = JwtClaims {
@@ -356,6 +363,7 @@ fn verify_jwt(token: &str, state: &AppState) -> AppResult<JwtClaims> {
     }
 }
 
+/// Extractor to verify and extract the user from the provided token.
 pub struct AuthUser(pub User);
 
 impl FromRequestParts<AppState> for AuthUser {

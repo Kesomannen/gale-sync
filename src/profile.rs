@@ -1,7 +1,4 @@
-use std::{
-    fmt::Display,
-    io::{Cursor, Read, Seek},
-};
+use std::io::{Cursor, Read, Seek};
 
 use anyhow::anyhow;
 use aws_sdk_s3::types::ObjectCannedAcl;
@@ -12,7 +9,6 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -22,6 +18,7 @@ use zip::ZipArchive;
 
 use crate::{
     auth::{self, AuthUser, User},
+    short_uuid::ShortUuid,
     AppError, AppResult, AppState,
 };
 
@@ -39,38 +36,6 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/{id}", get(download_profile).delete(delete_profile))
         .route("/{id}/meta", get(get_profile_metadata))
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-struct ShortUuid(Uuid);
-
-impl From<Uuid> for ShortUuid {
-    fn from(value: Uuid) -> Self {
-        ShortUuid(value)
-    }
-}
-
-impl Display for ShortUuid {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.pad(&BASE64_URL_SAFE_NO_PAD.encode(self.0))
-    }
-}
-
-impl From<ShortUuid> for String {
-    fn from(value: ShortUuid) -> Self {
-        format!("{value}")
-    }
-}
-
-impl TryFrom<String> for ShortUuid {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        let bytes = BASE64_URL_SAFE_NO_PAD.decode(&value)?;
-        let uuid = Uuid::from_slice(&bytes)?;
-        Ok(ShortUuid(uuid))
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,7 +71,7 @@ struct CreateProfileResponse {
     updated_at: DateTime<Utc>,
 }
 
-const BUCKET_NAME: &str = "gale-sync";
+const S3_BUCKET_NAME: &str = "gale-sync";
 
 async fn create_profile(
     AuthUser(user): AuthUser,
@@ -152,7 +117,7 @@ async fn delete_profile(
         .s3
         .delete_object()
         .key(s3_key(id.0))
-        .bucket(BUCKET_NAME)
+        .bucket(S3_BUCKET_NAME)
         .send()
         .await;
 
@@ -166,6 +131,7 @@ async fn upload_profile(
     state: &AppState,
 ) -> Result<CreateProfileResponse, AppError> {
     let cursor = Cursor::new(body.clone());
+    // reading the zip file could be intensive
     let manifest = tokio::task::spawn_blocking(|| read_manifest(cursor))
         .await
         .map_err(|err| anyhow!(err))??;
@@ -198,7 +164,7 @@ async fn upload_profile(
         .s3
         .put_object()
         .key(s3_key(profile.id.0))
-        .bucket(BUCKET_NAME)
+        .bucket(S3_BUCKET_NAME)
         .content_encoding("application/zip")
         .acl(ObjectCannedAcl::PublicRead)
         .body(body.into())
@@ -218,6 +184,9 @@ fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
 
     let manifest: ProfileManifest = serde_yml::from_reader(manifest)
         .map_err(|err| AppError::bad_request(format!("Error parsing export.r2x: {err}")))?;
+
+    // maybe re-encode the zip if its not compressed?
+    // also check for unusual file extensions
 
     /*
     let mut output = Vec::new();
@@ -256,6 +225,11 @@ async fn check_permission(id: Uuid, user: &auth::User, state: &AppState) -> Resu
     }
 }
 
+/// This makes sure an s3 operation and a database transaction
+/// happens atomically (by rolling back the db if s3 failed).
+///
+/// It's not perfect, since if the final database commit fails
+/// s3 will still go through.
 async fn commit_s3_tx<T, U>(
     tx: sqlx::Transaction<'_, Postgres>,
     s3_res: Result<U, impl std::error::Error>,
@@ -277,6 +251,7 @@ async fn download_profile(
     Path(id): Path<ShortUuid>,
     State(state): State<AppState>,
 ) -> AppResult<Redirect> {
+    // Maybe move this to a separate task to not block the response?
     let profile = sqlx::query!(
         "UPDATE profiles
             SET downloads = downloads + 1
@@ -288,9 +263,11 @@ async fn download_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
+    // Include a version query to make sure we aren't getting
+    // an already cached old version
     let url = format!(
         "https://{}.{}/{}?v={}",
-        BUCKET_NAME,
+        S3_BUCKET_NAME,
         state.cdn_domain,
         s3_key(id.0),
         profile.updated_at.timestamp()

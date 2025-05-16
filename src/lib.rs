@@ -6,6 +6,7 @@ use sqlx::PgPool;
 mod auth;
 mod error;
 mod profile;
+mod short_uuid;
 
 pub(crate) use error::{AppError, AppResult};
 
