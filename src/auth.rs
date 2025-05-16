@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use anyhow::Context;
 use axum::{
     extract::{FromRequestParts, Query, State},
@@ -11,17 +9,16 @@ use axum_extra::extract::{
     cookie::{Cookie, SameSite},
     CookieJar,
 };
-use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
 use http::StatusCode;
-use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use token::create;
 use tracing::warn;
 use url::Url;
 use uuid::Uuid;
 
-use crate::{AppError, AppResult, AppState};
+use crate::prelude::*;
+
+mod token;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -169,7 +166,7 @@ async fn request_token_and_create_jwt(
         .context("error fetching discord auth info")?;
 
     let user = upsert_discord_user(info.user, state).await?;
-    let jwt = create_jwt(user.into(), state)?;
+    let jwt = create(user.into(), state)?;
 
     Ok(TokenResponse {
         access_token: jwt,
@@ -285,84 +282,6 @@ pub struct User {
     pub avatar: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct JwtClaims {
-    #[serde(rename = "exp")]
-    expiration: i64,
-
-    #[serde(flatten)]
-    user: JwtUser,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JwtUser {
-    #[serde(rename = "sub")]
-    id: i32,
-    discord_id: String,
-    name: String,
-    display_name: String,
-    avatar: String,
-}
-
-impl From<JwtUser> for User {
-    fn from(value: JwtUser) -> Self {
-        User {
-            id: value.id,
-            discord_id: value.discord_id,
-            name: value.name,
-            display_name: value.display_name,
-            avatar: value.avatar,
-        }
-    }
-}
-
-impl From<User> for JwtUser {
-    fn from(value: User) -> Self {
-        JwtUser {
-            id: value.id,
-            discord_id: value.discord_id,
-            name: value.name,
-            display_name: value.display_name,
-            avatar: value.avatar,
-        }
-    }
-}
-
-fn hmac_key(state: &AppState) -> anyhow::Result<Hmac<Sha256>> {
-    Hmac::new_from_slice(state.jwt_secret.as_bytes()).context("failed to create encryption key")
-}
-
-fn create_jwt(user: JwtUser, state: &AppState) -> AppResult<String> {
-    const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60); // 30 minutes
-
-    let key = hmac_key(state)?;
-    let claims = JwtClaims {
-        user,
-        expiration: (Utc::now() + EXPIRATION_TIME).timestamp(),
-    };
-
-    let jwt = claims.sign_with_key(&key).context("failed to sign JWT")?;
-
-    Ok(jwt)
-}
-
-fn verify_jwt(token: &str, state: &AppState) -> AppResult<JwtClaims> {
-    let key = hmac_key(state)?;
-    let claims: JwtClaims = token
-        .verify_with_key(&key)
-        .map_err(|_| AppError::unauthorized("Token is invalid."))?;
-
-    let expiration = DateTime::from_timestamp(claims.expiration, 0)
-        .ok_or_else(|| AppError::unauthorized("Token expiration time is invalid."))?;
-
-    if Utc::now() < expiration {
-        Ok(claims)
-    } else {
-        Err(AppError::unauthorized("Token is expired."))
-    }
-}
-
 /// Extractor to verify and extract the user from the provided token.
 pub struct AuthUser(pub User);
 
@@ -383,7 +302,7 @@ impl FromRequestParts<AppState> for AuthUser {
             AppError::bad_request("Authorization header must use the Bearer scheme.")
         })?;
 
-        let claims = verify_jwt(token, state)?;
+        let claims = token::verify(token, state)?;
 
         Ok(AuthUser(claims.user.into()))
     }

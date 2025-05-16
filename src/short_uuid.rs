@@ -4,7 +4,10 @@ use base64::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A base64-encoded UUID to shorten profile ids
+/// A base64-encoded UUID
+///
+/// Used to shorten profile ids and make them more distinct
+/// from Thunderstore legacyprofile ids.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ShortUuid(pub Uuid);

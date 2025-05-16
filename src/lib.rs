@@ -8,8 +8,6 @@ mod error;
 mod profile;
 mod short_uuid;
 
-pub(crate) use error::{AppError, AppResult};
-
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -26,4 +24,11 @@ pub fn routes(state: AppState) -> Router {
         .nest("/auth", auth::routes())
         .nest("/profile", profile::routes())
         .with_state(state)
+}
+
+mod prelude {
+    pub use super::{
+        error::{AppError, AppResult},
+        AppState,
+    };
 }
