@@ -13,7 +13,7 @@ primary_region = 'fra'
   S3_REGION = 'fra1'
   S3_ENDPOINT = 'https://fra1.digitaloceanspaces.com'
   CDN_DOMAIN = 'fra1.cdn.digitaloceanspaces.com'
-  LOG_LEVEL = 'debug'
+  LOG_LEVEL = 'info'
 
 [http_service]
   internal_port = 8080
