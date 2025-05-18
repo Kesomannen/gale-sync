@@ -86,8 +86,14 @@ struct DiscordUser {
     username: String,
     avatar: String,
     discriminator: String,
-    global_name: String,
+    global_name: Option<String>,
     public_flags: u32,
+}
+
+impl DiscordUser {
+    fn display_name(&self) -> &str {
+        self.global_name.as_ref().unwrap_or(&self.username)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -213,19 +219,16 @@ async fn get_discord_token(
 }
 
 async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResult<DiscordAuthInfo> {
-    let text = state
+    let info = state
         .http
         .get(format!("{DISCORD_API_ENDPOINT}/oauth2/@me"))
         .bearer_auth(access_token)
         .send()
         .await?
         .error_for_status()?
-        .text()
+        .json()
         .await?;
 
-    tracing::info!("{text:?}");
-
-    let info = serde_json::from_str(&text).context("failed to deserialize")?;
     Ok(info)
 }
 
@@ -242,7 +245,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
     if !is_test_user {
         warn!(
             "user {} tried to log in but wasn't whitelisted!",
-            user.global_name
+            user.display_name()
         );
         // TODO: nicer redirect since this is shown in browsers
         return Err(AppError::forbidden("Profile sync is currently only available to test users. Request beta access on Discord or come back later!"));
@@ -261,7 +264,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
             public_flags = EXCLUDED.public_flags
         RETURNING id, name, display_name, discord_id, avatar",
         user.username,
-        user.global_name,
+        user.display_name(),
         user.id,
         user.avatar,
         user.discriminator,
