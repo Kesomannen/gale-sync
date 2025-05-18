@@ -213,16 +213,19 @@ async fn get_discord_token(
 }
 
 async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResult<DiscordAuthInfo> {
-    let info: DiscordAuthInfo = state
+    let text = state
         .http
         .get(format!("{DISCORD_API_ENDPOINT}/oauth2/@me"))
         .bearer_auth(access_token)
         .send()
         .await?
         .error_for_status()?
-        .json()
+        .text()
         .await?;
 
+    tracing::info!("{text:?}");
+
+    let info = serde_json::from_str(&text).context("failed to deserialize")?;
     Ok(info)
 }
 
