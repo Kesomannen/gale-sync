@@ -1,4 +1,8 @@
-CREATE TYPE event_kind AS ENUM ('app_start');
+DO $$ BEGIN
+  CREATE TYPE event_kind AS ENUM ('app_start');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 CREATE TABLE IF NOT EXISTS event (
   id SERIAL PRIMARY KEY,

@@ -1,7 +1,6 @@
 use std::io::{Cursor, Read, Seek};
 
 use anyhow::anyhow;
-use aws_sdk_s3::types::ObjectCannedAcl;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, State},
@@ -71,14 +70,12 @@ struct CreateProfileResponse {
     updated_at: DateTime<Utc>,
 }
 
-const S3_BUCKET_NAME: &str = "gale-sync";
-
 async fn create_profile(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<CreateProfileResponse>)> {
-    let profile = upload_profile(Uuid::new_v4(), &user, body, &state).await?;
+    let profile = upload_profile(Uuid::new_v4(), &user, body, true, &state).await?;
 
     Ok((StatusCode::CREATED, Json(profile)))
 }
@@ -91,7 +88,7 @@ async fn update_profile(
 ) -> AppResult<Json<CreateProfileResponse>> {
     check_permission(id.0, &user, &state).await?;
 
-    let profile = upload_profile(id.0, &user, body, &state).await?;
+    let profile = upload_profile(id.0, &user, body, false, &state).await?;
 
     Ok(Json(profile))
 }
@@ -113,13 +110,7 @@ async fn delete_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let res = state
-        .s3
-        .delete_object()
-        .key(s3_key(id.0))
-        .bucket(S3_BUCKET_NAME)
-        .send()
-        .await;
+    let res = state.storage.delete(s3_key(id.0)).await;
 
     commit_s3_tx(tx, res, || StatusCode::NO_CONTENT).await
 }
@@ -128,6 +119,7 @@ async fn upload_profile(
     id: Uuid,
     user: &auth::User,
     body: Bytes,
+    post: bool,
     state: &AppState,
 ) -> Result<CreateProfileResponse, AppError> {
     let cursor = Cursor::new(body.clone());
@@ -160,16 +152,7 @@ async fn upload_profile(
     .fetch_one(&mut *tx)
     .await?;
 
-    let res = state
-        .s3
-        .put_object()
-        .key(s3_key(profile.id.0))
-        .bucket(S3_BUCKET_NAME)
-        .content_encoding("application/zip")
-        .acl(ObjectCannedAcl::PublicRead)
-        .body(body.into())
-        .send()
-        .await;
+    let res = state.storage.upload(s3_key(profile.id.0), body, post).await;
 
     commit_s3_tx(tx, res, || profile).await
 }
@@ -265,13 +248,11 @@ async fn download_profile(
 
     // Include a version query to make sure we aren't getting
     // an already cached old version
-    let url = format!(
-        "https://{}.{}/{}?v={}",
-        S3_BUCKET_NAME,
-        state.cdn_domain,
+    let url = state.storage.url(format!(
+        "{}?v={}",
         s3_key(id.0),
         profile.updated_at.timestamp()
-    );
+    ));
 
     Ok(Redirect::to(&url))
 }
