@@ -68,7 +68,7 @@ async fn setup_db() -> anyhow::Result<PgPool> {
     let db_url = env_var("DATABASE_URL")?;
     let db = PgPool::connect(&db_url).await?;
 
-    sqlx::migrate!().run(&db).await?;
+    //sqlx::migrate!().run(&db).await?;
     Ok(db)
 }
 
