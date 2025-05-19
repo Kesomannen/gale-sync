@@ -7,16 +7,16 @@ mod auth;
 mod error;
 mod profile;
 mod short_uuid;
+pub mod storage;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub s3: aws_sdk_s3::Client,
+    pub storage: storage::Client,
     pub http: reqwest::Client,
     pub discord_client_id: Arc<str>,
     pub discord_client_secret: Arc<str>,
     pub jwt_secret: Arc<str>,
-    pub cdn_domain: Arc<str>,
 }
 
 pub fn routes(state: AppState) -> Router {

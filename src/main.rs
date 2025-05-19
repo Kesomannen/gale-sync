@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use aws_config::Region;
 use axum::Router;
 use dotenvy::dotenv;
 use gale_sync::AppState;
@@ -27,16 +26,25 @@ async fn main() -> anyhow::Result<()> {
         .with_max_level(log_level)
         .init();
 
-    let (db, s3) = tokio::try_join!(setup_db(), setup_s3(),)?;
+    let db = setup_db().await?;
+
+    let http = reqwest::Client::new();
+
+    let supabase_url = env_var("SUPABASE_URL")?;
+    let storage = gale_sync::storage::Client::new(
+        env_var_arc("STORAGE_BUCKET_NAME")?,
+        env_var_arc("SUPABASE_API_KEY")?,
+        format!("{supabase_url}/storage/v1").into(),
+        http.clone(),
+    );
 
     let state = AppState {
         db,
-        s3,
-        http: reqwest::Client::new(),
+        http,
+        storage,
         discord_client_id: env_var_arc("DISCORD_CLIENT_ID")?,
         discord_client_secret: env_var_arc("DISCORD_CLIENT_SECRET")?,
         jwt_secret: env_var_arc("JWT_SECRET")?,
-        cdn_domain: env_var_arc("CDN_DOMAIN")?,
     };
 
     let app = Router::new()
@@ -62,17 +70,6 @@ async fn setup_db() -> anyhow::Result<PgPool> {
 
     sqlx::migrate!().run(&db).await?;
     Ok(db)
-}
-
-async fn setup_s3() -> anyhow::Result<aws_sdk_s3::Client> {
-    let config = aws_config::from_env()
-        .region(Region::new(env_var("S3_REGION")?))
-        .endpoint_url(env_var("S3_ENDPOINT")?)
-        .load()
-        .await;
-
-    let s3 = aws_sdk_s3::Client::new(&config);
-    Ok(s3)
 }
 
 fn env_var_arc(name: &str) -> anyhow::Result<Arc<str>> {

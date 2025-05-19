@@ -11,7 +11,6 @@ use axum_extra::extract::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use token::create;
 use tracing::warn;
 use url::Url;
 use uuid::Uuid;
@@ -172,7 +171,7 @@ async fn request_token_and_create_jwt(
         .context("error fetching discord auth info")?;
 
     let user = upsert_discord_user(info.user, state).await?;
-    let jwt = create(user.into(), state)?;
+    let jwt = token::create(user.into(), state)?;
 
     Ok(TokenResponse {
         access_token: jwt,
