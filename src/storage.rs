@@ -4,6 +4,9 @@ use http::Method;
 
 use crate::prelude::*;
 
+/// A client to interact with the Supabase storage API.
+///
+/// I couldn't find any good crates for this so I made my own :)
 #[derive(Debug, Clone)]
 pub struct Client {
     bucket_name: Arc<str>,
@@ -62,7 +65,7 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) fn url(&self, key: impl Display) -> String {
+    pub(crate) fn object_url(&self, key: impl Display) -> String {
         format!("{}{}", self.base_url, self.object_path(key))
     }
 }

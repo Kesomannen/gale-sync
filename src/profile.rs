@@ -234,7 +234,6 @@ async fn download_profile(
     Path(id): Path<ShortUuid>,
     State(state): State<AppState>,
 ) -> AppResult<Redirect> {
-    // Maybe move this to a separate task to not block the response?
     let profile = sqlx::query!(
         "UPDATE profiles
             SET downloads = downloads + 1
@@ -246,9 +245,9 @@ async fn download_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    // Include a version query to make sure we aren't getting
+    // Include a versioned query param to make sure we aren't getting
     // an already cached old version
-    let url = state.storage.url(format!(
+    let url = state.storage.object_url(format!(
         "{}?v={}",
         s3_key(id.0),
         profile.updated_at.timestamp()
