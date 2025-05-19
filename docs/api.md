@@ -34,7 +34,7 @@ type ApiError = {
 Begins the discord OAuth flow.
 
 > [!NOTE]
-> The authentication flow isn't yet compatible with applications other than Gale.
+> The authentication flow isn't yet compatible with applications other than Gale, although this is being worked on.
 
 **Response**
 
