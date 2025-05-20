@@ -1,6 +1,6 @@
 # Gale Sync
 
-Server for Gale's profile sync API. Hosted at `https://gale.kesomannen.com/api`.
+Backend for Gale's profile sync API. Hosted at `https://gale.kesomannen.com/api`.
 
 [API docs](./docs/api.md)
 
