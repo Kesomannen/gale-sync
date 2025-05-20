@@ -11,7 +11,6 @@ use axum_extra::extract::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 use url::Url;
 use uuid::Uuid;
 
@@ -232,6 +231,7 @@ async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResul
 }
 
 async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<User> {
+    /*
     let is_test_user = sqlx::query!(
         "SELECT EXISTS(SELECT 1 FROM test_users WHERE discord_id = $1)",
         user.id
@@ -249,6 +249,7 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
         // TODO: nicer redirect since this is shown in browsers
         return Err(AppError::forbidden("Profile sync is currently only available to test users. Request beta access on Discord or come back later!"));
     }
+    */
 
     let user = sqlx::query_as!(
         User,
