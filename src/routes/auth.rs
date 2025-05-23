@@ -1,6 +1,6 @@
 use anyhow::Context;
 use axum::{
-    extract::{FromRequestParts, Query, State},
+    extract::{Query, State},
     response::{Html, Redirect},
     routing::{get, post},
     Json, Router,
@@ -14,16 +14,16 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use uuid::Uuid;
 
-use crate::prelude::*;
-
-mod token;
+use crate::{
+    auth::{self, User},
+    prelude::*,
+};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/login", get(login))
         .route("/callback", get(oauth_callback))
         .route("/token", post(grant_token))
-        .route("/me", get(me))
 }
 
 const DISCORD_API_ENDPOINT: &str = "https://discord.com/api/v10";
@@ -126,18 +126,11 @@ async fn oauth_callback(
 
     // This redirect page sends the user to `gale://auth/callback`
     // to let the app receive the tokens.
-    let html = include_str!("../assets/redirect.html")
+    let html = include_str!("../../assets/redirect.html")
         .replace("%access_token%", &tokens.access_token)
         .replace("%refresh_token%", &tokens.refresh_token);
 
     Ok(Html(html))
-}
-
-// Maybe this is unneccessary, since all it's doing is decoding the
-// JWT (which the client already has). However I think it's nice for
-// anyone who doesn't bother implementing that themselves.
-async fn me(AuthUser(user): AuthUser) -> AppResult<Json<User>> {
-    Ok(Json(user))
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,7 +163,7 @@ async fn request_token_and_create_jwt(
         .context("error fetching discord auth info")?;
 
     let user = upsert_discord_user(info.user, state).await?;
-    let jwt = token::create(user.into(), state)?;
+    let jwt = auth::token::create(user.into(), state)?;
 
     Ok(TokenResponse {
         access_token: jwt,
@@ -274,42 +267,4 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
     .await?;
 
     Ok(user)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct User {
-    // don't expose the id
-    #[serde(skip)]
-    pub id: i32,
-    pub discord_id: String,
-    pub name: String,
-    pub display_name: String,
-    pub avatar: String,
-}
-
-/// Extractor to verify and extract the user from the provided token.
-pub struct AuthUser(pub User);
-
-impl FromRequestParts<AppState> for AuthUser {
-    type Rejection = AppError;
-
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let auth = parts
-            .headers
-            .get("Authorization")
-            .and_then(|value| value.to_str().ok())
-            .ok_or_else(|| AppError::unauthorized("Authorization header is missing."))?;
-
-        let token = auth.strip_prefix("Bearer ").ok_or_else(|| {
-            AppError::bad_request("Authorization header must use the Bearer scheme.")
-        })?;
-
-        let claims = token::verify(token, state)?;
-
-        Ok(AuthUser(claims.user.into()))
-    }
 }

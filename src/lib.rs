@@ -6,6 +6,7 @@ use sqlx::PgPool;
 mod auth;
 mod error;
 mod profile;
+mod routes;
 mod short_uuid;
 pub mod storage;
 
@@ -21,8 +22,9 @@ pub struct AppState {
 
 pub fn routes(state: AppState) -> Router {
     Router::new()
-        .nest("/auth", auth::routes())
-        .nest("/profile", profile::routes())
+        .nest("/auth", routes::auth::routes())
+        .nest("/profile", routes::profile::routes())
+        .nest("/user", routes::user::routes())
         .with_state(state)
 }
 

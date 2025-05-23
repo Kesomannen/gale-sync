@@ -57,27 +57,6 @@ type CallbackParameters = {
 
 `302 Redirect` to `gale://auth/callback?access_token=Xrefresh_token=X`. This deep link is handled by the Gale app to receive the token.
 
-### `GET /auth/me`
-
-Returns information about the current user.
-
-Requires Authorization.
-
-**Response**
-
-`200 OK` with [User](#types).
-
-**Example response**
-
-```json
-{
-  "discordId": "308117922260451300",
-  "name": "kesomannen",
-  "displayName": "Bobbo ::)",
-  "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
-}
-```
-
 ### `POST /auth/token`
 
 Consumes the refresh token to grant new auth tokens.
@@ -214,6 +193,50 @@ type ProfileMetadata = {
       }
     ]
   }
+}
+```
+
+### `GET /user/me`
+
+Returns information about the current user.
+
+Requires Authorization.
+
+**Response**
+
+```ts
+type UserWithProfiles = User & {
+  profiles: {
+    id: string;
+    name: string;
+    createdAt: string; // ISO8601
+    updatedAt: string; // ISO8601
+  }[];
+};
+```
+
+**Example response**
+
+```json
+{
+    "discordId": "308117922260451340",
+    "name": "kesomannen",
+    "displayName": "Bobbo ::)",
+    "avatar": "0d148b55b680b38fe207988e2d3bbfd0",
+    "profiles": [
+        {
+            "id": "SXfMJaBKQq2UEwCyScQcSQ",
+            "name": "Default",
+            "createdAt": "2025-05-14T19:04:00.753826Z",
+            "updatedAt": "2025-05-14T19:04:00.753826Z"
+        },
+        {
+            "id": "vHT-YZa2R5yUmTXnHIb0Qg",
+            "name": "My Profile",
+            "createdAt": "2025-05-19T14:10:11.836673Z",
+            "updatedAt": "2025-05-21T15:30:03.239542Z"
+        }
+    ]
 }
 ```
 
