@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            u.discord_id,\n            u.name,\n            u.display_name,\n            u.avatar,\n            ARRAY_AGG ((\n                p.id,\n                p.name,\n                p.created_at,\n                p.updated_at\n            )) AS \"profiles: Vec<UserProfile>\"\n        FROM users u\n        LEFT JOIN profiles p\n            ON p.owner_id = u.id\n        WHERE u.name = $1\n        GROUP BY\n            u.discord_id,\n            u.name,\n            u.display_name,\n            u.avatar",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "discord_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "profiles: Vec<UserProfile>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "391b3fd890bdfb12b952116aa2e143f42e7ac2e8077ce4653b0a78087f748a04"
+}
