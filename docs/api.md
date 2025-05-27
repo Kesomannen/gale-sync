@@ -209,6 +209,7 @@ type UserWithProfiles = User & {
   profiles: {
     id: string;
     name: string;
+    community: string;
     createdAt: string; // ISO8601
     updatedAt: string; // ISO8601
   }[];

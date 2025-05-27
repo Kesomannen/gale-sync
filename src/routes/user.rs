@@ -25,6 +25,7 @@ struct User {
 struct UserProfile {
     id: ShortUuid,
     name: String,
+    community: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -55,6 +56,7 @@ async fn query_user(name: String, state: &AppState) -> AppResult<User> {
             ARRAY_AGG ((
                 p.id,
                 p.name,
+                p.community,
                 p.created_at,
                 p.updated_at
             )) AS "profiles: Vec<UserProfile>"
