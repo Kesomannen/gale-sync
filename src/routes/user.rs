@@ -25,7 +25,7 @@ struct User {
 struct UserProfile {
     id: ShortUuid,
     name: String,
-    community: String,
+    community: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -53,13 +53,16 @@ async fn query_user(name: String, state: &AppState) -> AppResult<User> {
             u.name,
             u.display_name,
             u.avatar,
-            ARRAY_AGG ((
-                p.id,
-                p.name,
-                p.community,
-                p.created_at,
-                p.updated_at
-            )) AS "profiles: Vec<UserProfile>"
+            COALESCE(
+                ARRAY_AGG ((
+                    p.id,
+                    p.name,
+                    p.community,
+                    p.created_at,
+                    p.updated_at
+                )) FILTER (WHERE p.id IS NOT NULL),
+                ARRAY[]::record[]
+            ) AS "profiles: Vec<UserProfile>"
         FROM users u
         LEFT JOIN profiles p
             ON p.owner_id = u.id
