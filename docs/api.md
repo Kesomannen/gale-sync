@@ -228,12 +228,14 @@ type UserWithProfiles = User & {
         {
             "id": "SXfMJaBKQq2UEwCyScQcSQ",
             "name": "Default",
+            "community": "repo",
             "createdAt": "2025-05-14T19:04:00.753826Z",
             "updatedAt": "2025-05-14T19:04:00.753826Z"
         },
         {
             "id": "vHT-YZa2R5yUmTXnHIb0Qg",
             "name": "My Profile",
+            "community": "lethal-company",
             "createdAt": "2025-05-19T14:10:11.836673Z",
             "updatedAt": "2025-05-21T15:30:03.239542Z"
         }
