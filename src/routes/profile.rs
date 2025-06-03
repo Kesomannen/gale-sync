@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read, Seek};
+use std::{future::Future, io::{Cursor, Read, Seek}};
 
 use anyhow::anyhow;
 use axum::{
@@ -86,9 +86,9 @@ async fn delete_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let res = state.storage.delete(s3_key(id.0)).await;
+    commit_s3_tx(tx, state.storage.delete(s3_key(id.0))).await?;
 
-    commit_s3_tx(tx, res, || StatusCode::NO_CONTENT).await
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn upload_profile(
@@ -128,9 +128,9 @@ async fn upload_profile(
     .fetch_one(&mut *tx)
     .await?;
 
-    let res = state.storage.upload(s3_key(profile.id.0), body, post).await;
+    commit_s3_tx(tx, state.storage.upload(s3_key(profile.id.0), body, post)).await?;
 
-    commit_s3_tx(tx, res, || profile).await
+    Ok(profile)
 }
 
 fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
@@ -169,8 +169,8 @@ fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
     Ok(manifest)
 }
 
-async fn check_permission(id: Uuid, user: &auth::User, state: &AppState) -> Result<(), AppError> {
-    let profile = sqlx::query!("SELECT owner_id FROM profiles WHERE id = $1", id)
+async fn check_permission(profile_id: Uuid, user: &auth::User, state: &AppState) -> Result<(), AppError> {
+    let profile = sqlx::query!("SELECT owner_id FROM profiles WHERE id = $1", profile_id)
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -189,19 +189,21 @@ async fn check_permission(id: Uuid, user: &auth::User, state: &AppState) -> Resu
 ///
 /// It's not perfect, since if the final database commit fails
 /// s3 will still go through.
-async fn commit_s3_tx<T, U>(
+async fn commit_s3_tx<T, Fut>(
     tx: sqlx::Transaction<'_, Postgres>,
-    s3_res: Result<U, impl std::error::Error>,
-    f: impl FnOnce() -> T,
-) -> AppResult<T> {
-    match s3_res {
-        Ok(_) => {
+    s3: Fut,
+) -> AppResult<T>
+where 
+    Fut: Future<Output = AppResult<T>> 
+{
+    match s3.await {
+        Ok(res) => {
             tx.commit().await?;
-            Ok(f())
+            Ok(res)
         }
         Err(err) => {
             tx.rollback().await?;
-            Err(anyhow!("S3 error: {err}").into())
+            Err(anyhow!("Storage error: {err}").into())
         }
     }
 }
