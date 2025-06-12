@@ -1,5 +1,7 @@
 # Hosting
 
+The backend uses Supabase Postgres and Storage.
+
 ## Environment Variables
 
 | **Name**                | **Description**                            | **Default** |
