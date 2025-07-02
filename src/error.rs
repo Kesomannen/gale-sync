@@ -84,9 +84,9 @@ struct ErrorResponse {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         match &self {
-            AppError::Sqlx(err) => tracing::error!("database error: {err:?}"),
-            AppError::Reqwest(err) => tracing::error!("http error: {err:?}"),
-            AppError::Other(err) => tracing::error!("unexpected server error: {err:?}"),
+            AppError::Sqlx(err) => tracing::error!("database error: {err:#}"),
+            AppError::Reqwest(err) => tracing::error!("http error: {err:#}"),
+            AppError::Other(err) => tracing::error!("unexpected server error: {err:#}"),
             _ => (),
         }
 

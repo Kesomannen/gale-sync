@@ -11,6 +11,7 @@ use axum_extra::extract::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use url::Url;
 use uuid::Uuid;
 
@@ -210,15 +211,19 @@ async fn get_discord_token(
 }
 
 async fn get_discord_auth_info(access_token: &str, state: &AppState) -> AppResult<DiscordAuthInfo> {
-    let info = state
+    let text = state
         .http
         .get(format!("{DISCORD_API_ENDPOINT}/oauth2/@me"))
         .bearer_auth(access_token)
         .send()
         .await?
         .error_for_status()?
-        .json()
+        .text()
         .await?;
+
+    info!("{text}");
+
+    let info = serde_json::from_str(&text).context("failed to deserialize response")?;
 
     Ok(info)
 }
