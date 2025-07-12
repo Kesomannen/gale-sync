@@ -14,7 +14,7 @@ pub struct User {
     pub discord_id: String,
     pub name: String,
     pub display_name: String,
-    pub avatar: String,
+    pub avatar: Option<String>,
 }
 
 /// Extractor to verify and extract the user from the provided token.

@@ -16,7 +16,7 @@ struct User {
     discord_id: String,
     name: String,
     display_name: String,
-    avatar: String,
+    avatar: Option<String>,
     profiles: Option<Vec<UserProfile>>,
 }
 
@@ -53,7 +53,7 @@ async fn query_user(name: String, state: &AppState) -> AppResult<User> {
             u.name,
             u.display_name,
             u.avatar,
-            COALESCE(
+            COALESCE (
                 ARRAY_AGG ((
                     p.id,
                     p.name,

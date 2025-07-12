@@ -28,7 +28,7 @@ pub struct JwtUser {
     discord_id: String,
     name: String,
     display_name: String,
-    avatar: String,
+    avatar: Option<String>,
 }
 
 impl From<JwtUser> for User {

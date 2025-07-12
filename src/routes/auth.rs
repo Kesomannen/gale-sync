@@ -83,10 +83,8 @@ struct DiscordAuthInfo {
 struct DiscordUser {
     id: String,
     username: String,
-    avatar: String,
-    discriminator: String,
+    avatar: Option<String>,
     global_name: Option<String>,
-    public_flags: u32,
 }
 
 impl DiscordUser {
@@ -251,22 +249,18 @@ async fn upsert_discord_user(user: DiscordUser, state: &AppState) -> AppResult<U
 
     let user = sqlx::query_as!(
         User,
-        "INSERT INTO users (name, display_name, discord_id, avatar, discriminator, public_flags)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO users (name, display_name, discord_id, avatar)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT(discord_id)
         DO UPDATE SET
             name = EXCLUDED.name,
             display_name = EXCLUDED.display_name,
-            avatar = EXCLUDED.avatar,
-            discriminator = EXCLUDED.discriminator,
-            public_flags = EXCLUDED.public_flags
+            avatar = EXCLUDED.avatar
         RETURNING id, name, display_name, discord_id, avatar",
         user.username,
         user.display_name(),
         user.id,
         user.avatar,
-        user.discriminator,
-        user.public_flags as i32,
     )
     .fetch_one(&state.db)
     .await?;

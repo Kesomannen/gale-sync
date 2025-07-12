@@ -176,7 +176,7 @@ type ProfileMetadata = {
     "discordId": "308117922260451300",
     "name": "kesomannen",
     "displayName": "Bobbo ::)",
-    "avatar": "0d148b55b680b38fe207988e2d3bbfd0"
+    "avatar": null
   },
   "manifest": {
     "profileName": "Default",
@@ -252,7 +252,7 @@ type User = {
   discordId: string;
   name: string;
   displayName: string;
-  avatar: string; // Discord CDN hash
+  avatar: string | null; // Discord CDN hash
 };
 ```
 
