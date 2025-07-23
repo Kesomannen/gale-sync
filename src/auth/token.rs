@@ -63,8 +63,6 @@ fn hmac_key(state: &AppState) -> anyhow::Result<Hmac<Sha256>> {
 pub fn create(user: JwtUser, state: &AppState) -> AppResult<String> {
     const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60); // 30 minutes
 
-    let start = Instant::now();
-
     let key = hmac_key(state)?;
     let claims = JwtClaims {
         user,
