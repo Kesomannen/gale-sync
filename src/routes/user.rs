@@ -2,7 +2,7 @@ use axum::{extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::{auth::AuthUser, prelude::*, short_uuid::ShortUuid};
+use crate::{auth::AuthUser, prelude::*, profile::ProfileId};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -23,7 +23,8 @@ struct User {
 #[derive(Debug, Serialize, sqlx::Type)]
 #[serde(rename_all = "camelCase")]
 struct UserProfile {
-    id: ShortUuid,
+    #[serde(rename = "id")]
+    short_id: ProfileId,
     name: String,
     community: Option<String>,
     created_at: DateTime<Utc>,
@@ -55,7 +56,7 @@ async fn query_user(name: String, state: &AppState) -> AppResult<User> {
             u.avatar,
             COALESCE (
                 ARRAY_AGG ((
-                    p.id,
+                    p.short_id,
                     p.name,
                     p.community,
                     p.created_at,

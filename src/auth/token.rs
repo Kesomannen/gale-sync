@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -6,6 +6,7 @@ use hmac::{Hmac, Mac};
 use jwt::{SignWithKey, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use tracing::info;
 
 use crate::prelude::*;
 
@@ -61,6 +62,8 @@ fn hmac_key(state: &AppState) -> anyhow::Result<Hmac<Sha256>> {
 
 pub fn create(user: JwtUser, state: &AppState) -> AppResult<String> {
     const EXPIRATION_TIME: Duration = Duration::from_secs(30 * 60); // 30 minutes
+
+    let start = Instant::now();
 
     let key = hmac_key(state)?;
     let claims = JwtClaims {

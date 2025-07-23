@@ -28,3 +28,6 @@ zip = "3.0.0"
 tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 base64 = "0.22.1"
 axum-extra = { version = "0.10.1", features = ["cookie"] }
+regex = "1.11.1"
+rand = "0.9.2"
+rustrict = "0.7.35"

@@ -1,4 +1,8 @@
-use std::{future::Future, io::{Cursor, Read, Seek}};
+use std::{
+    fmt::Display,
+    future::Future,
+    io::{Cursor, Read, Seek},
+};
 
 use anyhow::anyhow;
 use axum::{
@@ -10,16 +14,15 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use http::StatusCode;
+use rand::Rng;
 use serde::Serialize;
 use sqlx::Postgres;
-use uuid::Uuid;
 use zip::ZipArchive;
 
 use crate::{
     auth::{self, AuthUser, User},
     prelude::*,
-    profile::{ProfileManifest, ProfileMod},
-    short_uuid::ShortUuid,
+    profile::{ProfileId, ProfileManifest, ProfileMod},
 };
 
 const SIZE_LIMIT: usize = 2 * 1024 * 1024;
@@ -41,7 +44,8 @@ pub fn routes() -> Router<AppState> {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateProfileResponse {
-    id: ShortUuid,
+    #[serde(rename = "id")]
+    short_id: ProfileId,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -51,7 +55,9 @@ async fn create_profile(
     State(state): State<AppState>,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<CreateProfileResponse>)> {
-    let profile = upload_profile(Uuid::new_v4(), &user, body, true, &state).await?;
+    let id = generate_id(&state).await?;
+
+    let profile = upload_profile(id, &user, body, true, &state).await?;
 
     Ok((StatusCode::CREATED, Json(profile)))
 }
@@ -59,12 +65,12 @@ async fn create_profile(
 async fn update_profile(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<ShortUuid>,
+    Path(id): Path<ProfileId>,
     body: Bytes,
 ) -> AppResult<Json<CreateProfileResponse>> {
-    check_permission(id.0, &user, &state).await?;
+    check_permission(&id, &user, &state).await?;
 
-    let profile = upload_profile(id.0, &user, body, false, &state).await?;
+    let profile = upload_profile(id, &user, body, false, &state).await?;
 
     Ok(Json(profile))
 }
@@ -72,27 +78,27 @@ async fn update_profile(
 async fn delete_profile(
     AuthUser(user): AuthUser,
     State(state): State<AppState>,
-    Path(id): Path<ShortUuid>,
+    Path(id): Path<ProfileId>,
 ) -> AppResult<StatusCode> {
-    check_permission(id.0, &user, &state).await?;
+    check_permission(&id, &user, &state).await?;
 
     let mut tx = state.db.begin().await?;
 
     let _ = sqlx::query!(
-        "DELETE FROM profiles WHERE id = $1 RETURNING updated_at",
-        id.0
+        "DELETE FROM profiles WHERE short_id = $1 RETURNING updated_at",
+        &*id.as_str()
     )
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    commit_s3_tx(tx, state.storage.delete(s3_key(id.0))).await?;
+    commit_s3_tx(tx, state.storage.delete(s3_key(&id))).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn upload_profile(
-    id: Uuid,
+    id: ProfileId,
     user: &auth::User,
     body: Bytes,
     post: bool,
@@ -111,15 +117,18 @@ async fn upload_profile(
 
     let profile = sqlx::query_as!(
         CreateProfileResponse,
-        "INSERT INTO profiles (id, owner_id, name, community, mods)
+        r#"INSERT INTO profiles (short_id, owner_id, name, community, mods)
         VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT(id)
+        ON CONFLICT(short_id)
         DO UPDATE SET
             name = EXCLUDED.name,
             mods = EXCLUDED.mods,
             updated_at = NOW()
-        RETURNING id, created_at, updated_at",
-        id,
+        RETURNING
+            short_id AS "short_id: ProfileId", 
+            created_at,
+            updated_at"#,
+        &*id.as_str(),
         user.id,
         manifest.profile_name,
         manifest.community,
@@ -128,7 +137,11 @@ async fn upload_profile(
     .fetch_one(&mut *tx)
     .await?;
 
-    commit_s3_tx(tx, state.storage.upload(s3_key(profile.id.0), body, post)).await?;
+    commit_s3_tx(
+        tx,
+        state.storage.upload(s3_key(&profile.short_id), body, post),
+    )
+    .await?;
 
     Ok(profile)
 }
@@ -169,11 +182,18 @@ fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
     Ok(manifest)
 }
 
-async fn check_permission(profile_id: Uuid, user: &auth::User, state: &AppState) -> Result<(), AppError> {
-    let profile = sqlx::query!("SELECT owner_id FROM profiles WHERE id = $1", profile_id)
-        .fetch_optional(&state.db)
-        .await?
-        .ok_or(AppError::NotFound)?;
+async fn check_permission(
+    profile_id: &ProfileId,
+    user: &auth::User,
+    state: &AppState,
+) -> Result<(), AppError> {
+    let profile = sqlx::query!(
+        "SELECT owner_id FROM profiles WHERE short_id = $1",
+        &*profile_id.as_str()
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     if profile.owner_id == user.id {
         Ok(())
@@ -189,12 +209,9 @@ async fn check_permission(profile_id: Uuid, user: &auth::User, state: &AppState)
 ///
 /// It's not perfect, since if the final database commit fails
 /// s3 will still go through.
-async fn commit_s3_tx<T, Fut>(
-    tx: sqlx::Transaction<'_, Postgres>,
-    s3: Fut,
-) -> AppResult<T>
-where 
-    Fut: Future<Output = AppResult<T>> 
+async fn commit_s3_tx<T, Fut>(tx: sqlx::Transaction<'_, Postgres>, s3: Fut) -> AppResult<T>
+where
+    Fut: Future<Output = AppResult<T>>,
 {
     match s3.await {
         Ok(res) => {
@@ -209,15 +226,15 @@ where
 }
 
 async fn download_profile(
-    Path(id): Path<ShortUuid>,
+    Path(id): Path<ProfileId>,
     State(state): State<AppState>,
 ) -> AppResult<Redirect> {
     let profile = sqlx::query!(
         "UPDATE profiles
             SET downloads = downloads + 1
-        WHERE id = $1
+        WHERE short_id = $1
         RETURNING updated_at",
-        id.0
+        &*id.as_str()
     )
     .fetch_optional(&state.db)
     .await?
@@ -227,7 +244,7 @@ async fn download_profile(
     // an already cached old version
     let url = state.storage.object_url(format!(
         "{}?v={}",
-        s3_key(id.0),
+        s3_key(&id),
         profile.updated_at.timestamp()
     ));
 
@@ -237,7 +254,8 @@ async fn download_profile(
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProfileMetadata {
-    id: ShortUuid,
+    #[serde(rename = "id")]
+    short_id: ProfileId,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     owner: User,
@@ -246,11 +264,10 @@ struct ProfileMetadata {
 
 async fn get_profile_metadata(
     State(state): State<AppState>,
-    Path(id): Path<ShortUuid>,
+    Path(id): Path<ProfileId>,
 ) -> AppResult<Json<ProfileMetadata>> {
     let profile = sqlx::query!(
         r#"SELECT
-            p.id,
             p.name,
             p.community,
             p.mods AS "mods: sqlx::types::Json<Vec<ProfileMod>>",
@@ -263,11 +280,11 @@ async fn get_profile_metadata(
             u.discord_id
         FROM profiles p
         JOIN users u ON u.id = p.owner_id
-        WHERE p.id = $1"#,
-        id.0
+        WHERE p.short_id = $1"#,
+        &id.to_string()
     )
     .map(|record| ProfileMetadata {
-        id,
+        short_id: id.clone(),
         created_at: record.created_at,
         updated_at: record.updated_at,
         owner: User {
@@ -290,6 +307,42 @@ async fn get_profile_metadata(
     Ok(Json(profile))
 }
 
-fn s3_key(id: Uuid) -> String {
-    format!("profile/{id}.zip")
+async fn generate_id(state: &AppState) -> AppResult<ProfileId> {
+    loop {
+        let id: String = rand::rng()
+            .sample_iter(rand::distr::Alphanumeric)
+            .take(6)
+            .map(char::from)
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+
+        if rustrict::CensorStr::is_inappropriate(&*id) {
+            continue;
+        }
+
+        let exists = sqlx::query!(
+            "SELECT EXISTS(SELECT 1 FROM profiles WHERE short_id = $1)",
+            &id
+        )
+        .fetch_one(&state.db)
+        .await?
+        .exists
+        .unwrap_or(true);
+
+        if exists {
+            continue;
+        }
+
+        return Ok(ProfileId::Short(id));
+    }
+}
+
+fn s3_key(id: &ProfileId) -> String {
+    format!(
+        "profile/{}.zip",
+        match id {
+            ProfileId::Legacy(short_uuid) => &short_uuid.0 as &dyn Display,
+            ProfileId::Short(short) => short,
+        }
+    )
 }

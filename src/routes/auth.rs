@@ -11,7 +11,6 @@ use axum_extra::extract::{
 };
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use url::Url;
 use uuid::Uuid;
 
