@@ -1,71 +1,65 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n            p.id,\n            p.name,\n            p.community,\n            p.mods AS \"mods: sqlx::types::Json<Vec<ProfileMod>>\",\n            p.created_at,\n            p.updated_at,\n            u.id AS \"owner_id\",\n            u.name AS \"owner_name\",\n            u.display_name AS \"owner_display_name\",\n            u.avatar,\n            u.discord_id\n        FROM profiles p\n        JOIN users u ON u.id = p.owner_id\n        WHERE p.id = $1",
+  "query": "SELECT\n            p.name,\n            p.community,\n            p.mods AS \"mods: sqlx::types::Json<Vec<ProfileMod>>\",\n            p.created_at,\n            p.updated_at,\n            u.id AS \"owner_id\",\n            u.name AS \"owner_name\",\n            u.display_name AS \"owner_display_name\",\n            u.avatar,\n            u.discord_id\n        FROM profiles p\n        JOIN users u ON u.id = p.owner_id\n        WHERE p.short_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 1,
         "name": "name",
         "type_info": "Text"
       },
       {
-        "ordinal": 2,
+        "ordinal": 1,
         "name": "community",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "mods: sqlx::types::Json<Vec<ProfileMod>>",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "updated_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "owner_id",
         "type_info": "Int4"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "owner_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 7,
         "name": "owner_display_name",
         "type_info": "Text"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "avatar",
         "type_info": "Text"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "discord_id",
         "type_info": "Text"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
-      false,
       false,
       true,
       false,
@@ -78,5 +72,5 @@
       false
     ]
   },
-  "hash": "091b7b348dcad0bec1e87a3b63979eeb3f7dd74e4636726e4e7eb01da40df4e1"
+  "hash": "008171a0e4d6e1d2346543b188b94785e1210fc1b33d9ebaafeb0ecf0564737f"
 }

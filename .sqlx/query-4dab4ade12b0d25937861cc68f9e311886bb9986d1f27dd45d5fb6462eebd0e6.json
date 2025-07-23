@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE profiles\n            SET downloads = downloads + 1\n        WHERE id = $1\n        RETURNING updated_at",
+  "query": "DELETE FROM profiles WHERE short_id = $1 RETURNING updated_at",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "abd03e59c0f4823b8a1028d47694571409ff8084ee9b6a562dc4daf265a87d56"
+  "hash": "4dab4ade12b0d25937861cc68f9e311886bb9986d1f27dd45d5fb6462eebd0e6"
 }

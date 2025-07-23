@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT owner_id FROM profiles WHERE id = $1",
+  "query": "SELECT owner_id FROM profiles WHERE short_id = $1",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "778a60bb21979ab8fc9a765338b13f3841fe508cecdfe32dbdb9571b78521c82"
+  "hash": "91e9660891d9b0dd87a9f162e84911e9e1b13f0668f999e451d2c7ac3766971f"
 }

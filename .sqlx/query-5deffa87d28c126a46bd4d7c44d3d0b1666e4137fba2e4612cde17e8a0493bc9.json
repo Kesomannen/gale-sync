@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO profiles (short_id, owner_id, name, community, mods)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT(short_id)\n        DO UPDATE SET\n            name = EXCLUDED.name,\n            mods = EXCLUDED.mods,\n            updated_at = NOW()\n        RETURNING\n            short_id AS \"short_id: ProfileId\", \n            created_at,\n            updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "short_id: ProfileId",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5deffa87d28c126a46bd4d7c44d3d0b1666e4137fba2e4612cde17e8a0493bc9"
+}
