@@ -25,6 +25,7 @@ pub fn routes(state: AppState) -> Router {
         .nest("/auth", routes::auth::routes())
         .nest("/profile", routes::profile::routes())
         .nest("/user", routes::user::routes())
+        .nest("/desktop", routes::desktop::router())
         .with_state(state)
 }
 
