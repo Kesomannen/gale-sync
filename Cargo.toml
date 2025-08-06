@@ -38,3 +38,4 @@ regex = "1.11.1"
 rand = "0.9.2"
 rustrict = "0.7.35"
 futures-util = "0.3.31"
+redis = { version = "0.32.4", features = ["tokio-comp"] }

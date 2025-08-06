@@ -11,6 +11,8 @@ mod short_uuid;
 pub mod socket;
 pub mod storage;
 
+type RedisConn = redis::aio::MultiplexedConnection;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -20,6 +22,7 @@ pub struct AppState {
     pub discord_client_secret: Arc<str>,
     pub jwt_secret: Arc<str>,
     pub sockets: socket::State,
+    pub redis: RedisConn,
 }
 
 pub fn routes(state: AppState) -> Router {

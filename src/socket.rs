@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use axum::extract::ws::{self, WebSocket};
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -13,10 +13,16 @@ use futures_util::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::profile::{ProfileId, ProfileMetadata};
+use crate::{
+    profile::{ProfileId, ProfileMetadata},
+    RedisConn,
+};
+
+const PROFILE_UPDATE: &str = "profile-update";
+const PROFILE_DELETE: &str = "profile-delete";
 
 type ListenerMap = HashMap<ProfileId, HashSet<Listener>>;
 
@@ -26,35 +32,57 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Self {
-        Self {
+    pub fn new(redis: mpsc::UnboundedReceiver<redis::PushInfo>) -> Self {
+        let state = Self {
             listeners: Default::default(),
-        }
+        };
+
+        tokio::spawn(handle_redis(state.clone(), redis));
+
+        state
     }
 
-    pub fn notify_profile_updated(&self, metadata: ProfileMetadata) {
-        let mut listeners = self.listeners.lock().unwrap();
-
-        Self::notify(
-            &mut listeners,
-            &metadata.short_id.clone(),
-            ServerMessage::ProfileUpdated { metadata },
-        );
+    pub async fn notify_profile_updated(
+        &self,
+        redis: &mut RedisConn,
+        metadata: &ProfileMetadata,
+    ) -> anyhow::Result<()> {
+        self.notify_redis(
+            redis,
+            format!("{PROFILE_UPDATE}:{}", metadata.short_id),
+            metadata,
+        )
+        .await
     }
 
-    pub fn notify_profile_deleted(&self, id: ProfileId) {
-        let mut listeners = self.listeners.lock().unwrap();
-
-        Self::notify(
-            &mut listeners,
-            &id.clone(),
-            ServerMessage::ProfileDeleted { id: id.clone() },
-        );
-
-        listeners.remove(&id);
+    pub async fn notify_profile_deleted(
+        &self,
+        redis: &mut RedisConn,
+        id: &ProfileId,
+    ) -> anyhow::Result<()> {
+        self.notify_redis(redis, format!("{PROFILE_DELETE}:{id}",), id)
+            .await
     }
 
-    fn notify(listeners: &mut ListenerMap, profile_id: &ProfileId, message: ServerMessage) {
+    async fn notify_redis<T: Serialize>(
+        &self,
+        redis: &mut RedisConn,
+        channel: String,
+        payload: &T,
+    ) -> anyhow::Result<()> {
+        let json = serde_json::to_string(payload).context("failed to serialize event payload")?;
+
+        redis::cmd("PUBLISH")
+            .arg(&[channel, json])
+            .query_async::<()>(redis)
+            .await?;
+
+        Ok(())
+    }
+
+    fn notify_local(listeners: &mut ListenerMap, profile_id: &ProfileId, message: ServerMessage) {
+        let mut count = 0;
+
         if let Some(set) = listeners.get(profile_id) {
             for listener in set {
                 if listener.tx.send(message.clone()).is_err() {
@@ -62,9 +90,13 @@ impl State {
                         "failed to send profile changed message to listener {}",
                         listener.uuid
                     );
+                } else {
+                    count += 1;
                 }
             }
         }
+
+        info!("notified {count} listeners");
     }
 }
 
@@ -222,4 +254,87 @@ async fn write(
     }
 
     info!("stopping socket write task: channel was closed")
+}
+
+async fn handle_redis(state: State, mut redis: mpsc::UnboundedReceiver<redis::PushInfo>) {
+    while let Some(msg) = redis.recv().await {
+        if let Err(err) = handle_redis_message(&state, msg).await {
+            error!("failed to handle redis message: {err}");
+        }
+    }
+}
+
+async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Result<()> {
+    debug!("{msg:?}");
+
+    if msg.kind != redis::PushKind::PMessage {
+        return Ok(());
+    }
+
+    let mut values = msg.data.into_iter();
+
+    // skip the pattern
+    _ = values.next();
+
+    let (event_name, profile_id) = match values.next() {
+        Some(redis::Value::BulkString(bytes)) => {
+            let str = String::try_from(bytes)?;
+            let (event_name, profile_id) = str.split_once(":").expect("no colon in channel name");
+            let profile_id: ProfileId = profile_id.to_string().try_into()?;
+
+            (event_name.to_string(), profile_id)
+        }
+        value => bail!("expected channel name, got {value:?}"),
+    };
+
+    let payload = match values.next() {
+        Some(redis::Value::BulkString(bytes)) => String::try_from(bytes)?,
+        value => bail!("expected event payload, got {value:?}"),
+    };
+
+    let mut listeners = state.listeners.lock().unwrap();
+
+    match event_name.as_str() {
+        PROFILE_UPDATE => {
+            let metadata: ProfileMetadata = serde_json::from_str(&payload)?;
+
+            State::notify_local(
+                &mut listeners,
+                &profile_id,
+                ServerMessage::ProfileUpdated { metadata },
+            );
+        }
+        PROFILE_DELETE => {
+            let id: ProfileId = serde_json::from_str(&payload)?;
+
+            State::notify_local(
+                &mut listeners,
+                &profile_id,
+                ServerMessage::ProfileDeleted { id },
+            );
+
+            listeners.remove(&profile_id);
+        }
+        name => bail!("unknown event: {name}"),
+    }
+
+    Ok(())
+}
+
+pub struct PushSender {
+    tx: mpsc::UnboundedSender<redis::PushInfo>,
+}
+
+impl PushSender {
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<redis::PushInfo>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        (Self { tx }, rx)
+    }
+}
+
+impl redis::aio::AsyncPushSender for PushSender {
+    fn send(&self, info: redis::PushInfo) -> Result<(), redis::aio::SendError> {
+        self.tx.send(info).map_err(|_| redis::aio::SendError)
+    }
 }

@@ -4,7 +4,7 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, State},
@@ -52,32 +52,32 @@ struct CreateProfileResponse {
 
 async fn create_profile(
     AuthUser(user): AuthUser,
-    State(state): State<AppState>,
+    State(mut state): State<AppState>,
     body: Bytes,
 ) -> AppResult<(StatusCode, Json<CreateProfileResponse>)> {
     let id = generate_id(&state).await?;
 
-    let profile = upload_profile(id, &user, body, true, &state).await?;
+    let profile = upload_profile(id, &user, body, true, &mut state).await?;
 
     Ok((StatusCode::CREATED, Json(profile)))
 }
 
 async fn update_profile(
     AuthUser(user): AuthUser,
-    State(state): State<AppState>,
+    State(mut state): State<AppState>,
     Path(id): Path<ProfileId>,
     body: Bytes,
 ) -> AppResult<Json<CreateProfileResponse>> {
     check_permission(&id, &user, &state).await?;
 
-    let profile = upload_profile(id, &user, body, false, &state).await?;
+    let profile = upload_profile(id, &user, body, false, &mut state).await?;
 
     Ok(Json(profile))
 }
 
 async fn delete_profile(
     AuthUser(user): AuthUser,
-    State(state): State<AppState>,
+    State(mut state): State<AppState>,
     Path(id): Path<ProfileId>,
 ) -> AppResult<StatusCode> {
     check_permission(&id, &user, &state).await?;
@@ -94,7 +94,11 @@ async fn delete_profile(
 
     commit_s3_tx(tx, state.storage.delete(storage_key(&id))).await?;
 
-    state.sockets.notify_profile_deleted(id);
+    state
+        .sockets
+        .notify_profile_deleted(&mut state.redis, &id)
+        .await
+        .context("failed to notify redis")?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -104,7 +108,7 @@ async fn upload_profile(
     user: &auth::User,
     body: Bytes,
     post: bool,
-    state: &AppState,
+    state: &mut AppState,
 ) -> Result<CreateProfileResponse, AppError> {
     let cursor = Cursor::new(body.clone());
     // reading the zip file could be intensive
@@ -147,13 +151,20 @@ async fn upload_profile(
     )
     .await?;
 
-    state.sockets.notify_profile_updated(ProfileMetadata {
-        short_id: id,
-        created_at: profile.created_at,
-        updated_at: profile.updated_at,
-        owner: user.clone(),
-        manifest,
-    });
+    state
+        .sockets
+        .notify_profile_updated(
+            &mut state.redis,
+            &ProfileMetadata {
+                short_id: id,
+                created_at: profile.created_at,
+                updated_at: profile.updated_at,
+                owner: user.clone(),
+                manifest,
+            },
+        )
+        .await
+        .context("failed to notify redis")?;
 
     Ok(profile)
 }

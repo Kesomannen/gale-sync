@@ -131,7 +131,7 @@ pub struct ProfileManifest {
     pub mods: Vec<ProfileMod>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileMetadata {
     #[serde(rename = "id")]

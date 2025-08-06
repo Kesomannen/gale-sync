@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use axum::Router;
 use dotenvy::dotenv;
 use gale_sync::AppState;
@@ -38,7 +38,23 @@ async fn main() -> anyhow::Result<()> {
         http.clone(),
     );
 
-    let sockets = gale_sync::socket::State::new();
+    let (sender, rx) = gale_sync::socket::PushSender::new();
+
+    let redis_url = env_var("REDIS_URL")?;
+    info!("connecting to redis at {redis_url}");
+    let redis = redis::Client::open(redis_url)?;
+
+    let mut redis = redis
+        .get_multiplexed_async_connection_with_config(
+            &redis::AsyncConnectionConfig::new().set_push_sender(sender),
+        )
+        .await
+        .context("failed to establish redis connection")?;
+
+    redis.psubscribe("profile-update:*").await?;
+    redis.psubscribe("profile-delete:*").await?;
+
+    let sockets = gale_sync::socket::State::new(rx);
 
     let state = AppState {
         db,
@@ -48,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
         discord_client_secret: env_var_arc("DISCORD_CLIENT_SECRET")?,
         jwt_secret: env_var_arc("JWT_SECRET")?,
         sockets,
+        redis,
     };
 
     let app = Router::new()
