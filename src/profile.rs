@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt::Display};
 
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -10,9 +11,9 @@ use sqlx::{
     Encode, Postgres, Type,
 };
 
-use crate::{error::AppError, short_uuid::ShortUuid};
+use crate::{auth::User, error::AppError, short_uuid::ShortUuid};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(try_from = "String", into = "String")]
 pub enum ProfileId {
     /// A 6-character alphanumeric string.
@@ -105,7 +106,7 @@ impl Decode<'_, Postgres> for ProfileId {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ModVersion {
     pub major: u32,
@@ -113,7 +114,7 @@ pub struct ModVersion {
     pub patch: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileMod {
     pub name: String,
@@ -121,11 +122,22 @@ pub struct ProfileMod {
     pub version: ModVersion,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileManifest {
     pub profile_name: String,
     #[serde(default)]
     pub community: Option<String>,
     pub mods: Vec<ProfileMod>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileMetadata {
+    #[serde(rename = "id")]
+    pub short_id: ProfileId,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub owner: User,
+    pub manifest: ProfileManifest,
 }

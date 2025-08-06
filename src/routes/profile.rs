@@ -22,7 +22,7 @@ use zip::ZipArchive;
 use crate::{
     auth::{self, AuthUser, User},
     prelude::*,
-    profile::{ProfileId, ProfileManifest, ProfileMod},
+    profile::{ProfileId, ProfileManifest, ProfileMetadata, ProfileMod},
 };
 
 const SIZE_LIMIT: usize = 2 * 1024 * 1024;
@@ -92,7 +92,9 @@ async fn delete_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    commit_s3_tx(tx, state.storage.delete(s3_key(&id))).await?;
+    commit_s3_tx(tx, state.storage.delete(storage_key(&id))).await?;
+
+    state.sockets.notify_profile_deleted(id);
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -110,7 +112,7 @@ async fn upload_profile(
         .await
         .map_err(|err| anyhow!(err))??;
 
-    let mods_json = serde_json::to_value(manifest.mods)
+    let mods_json = serde_json::to_value(&manifest.mods)
         .map_err(|err| anyhow!("failed to serialize mods: {err}"))?;
 
     let mut tx = state.db.begin().await?;
@@ -139,9 +141,19 @@ async fn upload_profile(
 
     commit_s3_tx(
         tx,
-        state.storage.upload(s3_key(&profile.short_id), body, post),
+        state
+            .storage
+            .upload(storage_key(&profile.short_id), body, post),
     )
     .await?;
+
+    state.sockets.notify_profile_updated(ProfileMetadata {
+        short_id: id,
+        created_at: profile.created_at,
+        updated_at: profile.updated_at,
+        owner: user.clone(),
+        manifest,
+    });
 
     Ok(profile)
 }
@@ -244,22 +256,11 @@ async fn download_profile(
     // an already cached old version
     let url = state.storage.object_url(format!(
         "{}?v={}",
-        s3_key(&id),
+        storage_key(&id),
         profile.updated_at.timestamp()
     ));
 
     Ok(Redirect::to(&url))
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileMetadata {
-    #[serde(rename = "id")]
-    short_id: ProfileId,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-    owner: User,
-    manifest: ProfileManifest,
 }
 
 async fn get_profile_metadata(
@@ -337,7 +338,7 @@ async fn generate_id(state: &AppState) -> AppResult<ProfileId> {
     }
 }
 
-fn s3_key(id: &ProfileId) -> String {
+fn storage_key(id: &ProfileId) -> String {
     format!(
         "profile/{}.zip",
         match id {

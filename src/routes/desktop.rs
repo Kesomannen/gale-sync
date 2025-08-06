@@ -2,7 +2,7 @@ use axum::{extract::Path, response::Redirect, routing::get, Router};
 
 use crate::prelude::*;
 
-pub fn router() -> Router<AppState> {
+pub fn routes() -> Router<AppState> {
     Router::new().route("/{*path}", get(handler))
 }
 

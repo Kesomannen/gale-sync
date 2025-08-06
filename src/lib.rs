@@ -8,6 +8,7 @@ mod error;
 mod profile;
 mod routes;
 mod short_uuid;
+pub mod socket;
 pub mod storage;
 
 #[derive(Clone)]
@@ -18,6 +19,7 @@ pub struct AppState {
     pub discord_client_id: Arc<str>,
     pub discord_client_secret: Arc<str>,
     pub jwt_secret: Arc<str>,
+    pub sockets: socket::State,
 }
 
 pub fn routes(state: AppState) -> Router {
@@ -25,7 +27,8 @@ pub fn routes(state: AppState) -> Router {
         .nest("/auth", routes::auth::routes())
         .nest("/profile", routes::profile::routes())
         .nest("/user", routes::user::routes())
-        .nest("/desktop", routes::desktop::router())
+        .nest("/desktop", routes::desktop::routes())
+        .nest("/socket", routes::socket::routes())
         .with_state(state)
 }
 

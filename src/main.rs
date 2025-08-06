@@ -38,6 +38,8 @@ async fn main() -> anyhow::Result<()> {
         http.clone(),
     );
 
+    let sockets = gale_sync::socket::State::new();
+
     let state = AppState {
         db,
         http,
@@ -45,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
         discord_client_id: env_var_arc("DISCORD_CLIENT_ID")?,
         discord_client_secret: env_var_arc("DISCORD_CLIENT_SECRET")?,
         jwt_secret: env_var_arc("JWT_SECRET")?,
+        sockets,
     };
 
     let app = Router::new()

@@ -8,7 +8,7 @@ use uuid::Uuid;
 ///
 /// This was used to shorten profile ids and make them more distinct
 /// from Thunderstore legacyprofile ids.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(try_from = "String", into = "String")]
 pub struct ShortUuid(pub Uuid);
 
