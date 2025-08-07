@@ -201,7 +201,7 @@ async fn read_inner(
             Ok(ClientMessage::Unsubscribe { profile_id }) => {
                 let mut listeners = state.listeners.lock().unwrap();
 
-                listeners.entry(profile_id).or_default().remove(&listener);
+                listeners.entry(profile_id).or_default().remove(listener);
 
                 None
             }
