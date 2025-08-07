@@ -132,19 +132,9 @@ impl Hash for Listener {
 #[derive(Debug, Serialize, Clone)]
 #[serde(tag = "event", content = "payload", rename_all = "camelCase")]
 enum ServerMessage {
-    #[serde(rename_all = "camelCase")]
-    ProfileUpdated {
-        metadata: ProfileMetadata,
-    },
-
-    #[serde(rename_all = "camelCase")]
-    ProfileDeleted {
-        id: ProfileId,
-    },
-
-    Error {
-        message: Cow<'static, str>,
-    },
+    ProfileUpdated { metadata: ProfileMetadata },
+    ProfileDeleted { id: ProfileId },
+    Error { message: Cow<'static, str> },
 }
 
 #[derive(Debug, Deserialize)]
