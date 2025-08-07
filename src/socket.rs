@@ -81,8 +81,6 @@ impl State {
     }
 
     fn notify_local(listeners: &mut ListenerMap, profile_id: &ProfileId, message: ServerMessage) {
-        let mut count = 0;
-
         if let Some(set) = listeners.get(profile_id) {
             for listener in set {
                 if listener.tx.send(message.clone()).is_err() {
@@ -90,13 +88,9 @@ impl State {
                         "failed to send profile changed message to listener {}",
                         listener.uuid
                     );
-                } else {
-                    count += 1;
                 }
             }
         }
-
-        info!("notified {count} listeners");
     }
 }
 
@@ -255,8 +249,6 @@ async fn handle_redis(state: State, mut redis: mpsc::UnboundedReceiver<redis::Pu
 }
 
 async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Result<()> {
-    debug!("{msg:?}");
-
     if msg.kind != redis::PushKind::PMessage {
         return Ok(());
     }
@@ -309,22 +301,4 @@ async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Re
     }
 
     Ok(())
-}
-
-pub struct PushSender {
-    tx: mpsc::UnboundedSender<redis::PushInfo>,
-}
-
-impl PushSender {
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<redis::PushInfo>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        (Self { tx }, rx)
-    }
-}
-
-impl redis::aio::AsyncPushSender for PushSender {
-    fn send(&self, info: redis::PushInfo) -> Result<(), redis::aio::SendError> {
-        self.tx.send(info).map_err(|_| redis::aio::SendError)
-    }
 }
