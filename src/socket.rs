@@ -237,7 +237,7 @@ async fn write(
         }
     }
 
-    info!("stopping socket write task: channel was closed")
+    debug!("stopping socket write task: channel was closed")
 }
 
 async fn handle_redis(state: State, mut redis: mpsc::UnboundedReceiver<redis::PushInfo>) {
