@@ -122,13 +122,12 @@ async fn oauth_callback(
     )
     .await?;
 
-    // This redirect page sends the user to `gale://auth/callback`
-    // to let the app receive the tokens.
-    let html = include_str!("../../assets/redirect.html")
-        .replace("%access_token%", &tokens.access_token)
-        .replace("%refresh_token%", &tokens.refresh_token);
+    let redirect_url = format!(
+        "gale://auth/callback?access_token={}&refresh_token={}",
+        tokens.access_token, tokens.refresh_token
+    );
 
-    Ok(Html(html))
+    Ok(crate::redirect::to(&redirect_url))
 }
 
 #[derive(Debug, Deserialize)]

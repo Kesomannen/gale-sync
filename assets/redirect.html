@@ -1,67 +1,65 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Redirecting to Gale...</title>
-  </head>
-  <body>
-    <div id="container">
-      <main>
-        <h1>Redirecting back to Gale...</h1>
 
-        <a id="link" href="">If the app didn't open, click here.</a>
-      </main>
-    </div>
-  </body>
-  <script>
-    // The access and refresh token are inserted by the server on each request
-    const redirect =
-      "gale://auth/callback?access_token=%access_token%&refresh_token=%refresh_token%";
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Redirecting to Gale...</title>
+</head>
 
-    document.getElementById("link").href = redirect;
-    window.location.href = redirect;
-  </script>
-  <style>
-    h1 {
-      font-weight: bold;
-      font-size: large;
-    }
+<body>
+  <div id="container">
+    <main>
+      <h1>Redirecting back to Gale...</h1>
 
-    body {
-      background-color: oklch(20.8% 0.042 265.755);
-    }
+      <a id="link" href="%REDIRECT_URL%">If the app didn't open, click here.</a>
+    </main>
+  </div>
+</body>
+<script>
+  window.location.href = "%REDIRECT_URL%";
+</script>
+<style>
+  h1 {
+    font-weight: bold;
+    font-size: large;
+  }
 
-    #container {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+  body {
+    background-color: oklch(20.8% 0.042 265.755);
+  }
 
-    #link {
-      color: white;
-    }
+  #container {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
-    #link:hover {
-      color: greenyellow;
-    }
+  #link {
+    color: white;
+  }
 
-    main {
-      padding: 2rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-      background-color: oklch(27.9% 0.041 260.031);
-      border-radius: 1rem;
-      color: oklch(86.9% 0.022 252.894);
-      margin: 1rem;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-    }
+  #link:hover {
+    color: greenyellow;
+  }
 
-    main img {
-      max-width: 8rem;
-    }
-  </style>
+  main {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    background-color: oklch(27.9% 0.041 260.031);
+    border-radius: 1rem;
+    color: oklch(86.9% 0.022 252.894);
+    margin: 1rem;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  }
+
+  main img {
+    max-width: 8rem;
+  }
+</style>
+
 </html>

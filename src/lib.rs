@@ -6,6 +6,7 @@ use sqlx::PgPool;
 mod auth;
 mod error;
 mod profile;
+mod redirect;
 mod routes;
 mod short_uuid;
 pub mod socket;
