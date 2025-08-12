@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::{
     auth::{self, User},
     prelude::*,
+    redirect::RedirectBuilder,
 };
 
 pub fn routes() -> Router<AppState> {
@@ -127,7 +128,7 @@ async fn oauth_callback(
         tokens.access_token, tokens.refresh_token
     );
 
-    Ok(crate::redirect::to(&redirect_url))
+    Ok(RedirectBuilder::new(&redirect_url).build())
 }
 
 #[derive(Debug, Deserialize)]
