@@ -94,11 +94,11 @@ async fn delete_profile(
 
     commit_s3_tx(tx, state.storage.delete(storage_key(&id))).await?;
 
-    state
-        .sockets
-        .notify_profile_deleted(&mut state.redis, &id)
-        .await
-        .context("failed to notify redis")?;
+    // state
+    //     .sockets
+    //     .notify_profile_deleted(&mut state.redis, &id)
+    //     .await
+    //     .context("failed to notify redis")?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -151,20 +151,20 @@ async fn upload_profile(
     )
     .await?;
 
-    state
-        .sockets
-        .notify_profile_updated(
-            &mut state.redis,
-            &ProfileMetadata {
-                short_id: id,
-                created_at: profile.created_at,
-                updated_at: profile.updated_at,
-                owner: user.clone(),
-                manifest,
-            },
-        )
-        .await
-        .context("failed to notify redis")?;
+    // state
+    //     .sockets
+    //     .notify_profile_updated(
+    //         &mut state.redis,
+    //         &ProfileMetadata {
+    //             short_id: id,
+    //             created_at: profile.created_at,
+    //             updated_at: profile.updated_at,
+    //             owner: user.clone(),
+    //             manifest,
+    //         },
+    //     )
+    //     .await
+    //     .context("failed to notify redis")?;
 
     Ok(profile)
 }

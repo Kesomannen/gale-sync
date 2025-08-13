@@ -1,9 +1,10 @@
 use axum::{
     extract::{State, WebSocketUpgrade},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::any,
     Router,
 };
+use http::StatusCode;
 
 use crate::prelude::*;
 
@@ -12,5 +13,6 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn connect(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| crate::socket::handle(socket, state.sockets))
+    StatusCode::NOT_FOUND.into_response()
+    //ws.on_upgrade(move |socket| crate::socket::handle(socket, state.sockets))
 }
