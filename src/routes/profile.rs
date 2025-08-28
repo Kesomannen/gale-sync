@@ -4,7 +4,7 @@ use std::{
     io::{Cursor, Read, Seek},
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Path, State},
@@ -20,9 +20,9 @@ use sqlx::Postgres;
 use zip::ZipArchive;
 
 use crate::{
-    auth::{self, AuthUser, User},
+    auth::{self, AuthUser},
     prelude::*,
-    profile::{ProfileId, ProfileManifest, ProfileMetadata, ProfileMod},
+    profile::{ProfileId, ProfileManifest, ProfileMetadata},
 };
 
 const SIZE_LIMIT: usize = 2 * 1024 * 1024;
@@ -77,7 +77,7 @@ async fn update_profile(
 
 async fn delete_profile(
     AuthUser(user): AuthUser,
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<ProfileId>,
 ) -> AppResult<StatusCode> {
     check_permission(&id, &user, &state).await?;
@@ -94,11 +94,9 @@ async fn delete_profile(
 
     commit_s3_tx(tx, state.storage.delete(storage_key(&id))).await?;
 
-    // state
-    //     .sockets
-    //     .notify_profile_deleted(&mut state.redis, &id)
-    //     .await
-    //     .context("failed to notify redis")?;
+    state
+        .sockets
+        .notify_profile_deleted(state.redis.clone(), &id);
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -151,20 +149,16 @@ async fn upload_profile(
     )
     .await?;
 
-    // state
-    //     .sockets
-    //     .notify_profile_updated(
-    //         &mut state.redis,
-    //         &ProfileMetadata {
-    //             short_id: id,
-    //             created_at: profile.created_at,
-    //             updated_at: profile.updated_at,
-    //             owner: user.clone(),
-    //             manifest,
-    //         },
-    //     )
-    //     .await
-    //     .context("failed to notify redis")?;
+    state.sockets.notify_profile_updated(
+        state.redis.clone(),
+        &ProfileMetadata {
+            short_id: id,
+            created_at: profile.created_at,
+            updated_at: profile.updated_at,
+            owner: user.clone(),
+            manifest,
+        },
+    );
 
     Ok(profile)
 }
@@ -278,43 +272,9 @@ async fn get_profile_metadata(
     State(state): State<AppState>,
     Path(id): Path<ProfileId>,
 ) -> AppResult<Json<ProfileMetadata>> {
-    let profile = sqlx::query!(
-        r#"SELECT
-            p.name,
-            p.community,
-            p.mods AS "mods: sqlx::types::Json<Vec<ProfileMod>>",
-            p.created_at,
-            p.updated_at,
-            u.id AS "owner_id",
-            u.name AS "owner_name",
-            u.display_name AS "owner_display_name",
-            u.avatar,
-            u.discord_id
-        FROM profiles p
-        JOIN users u ON u.id = p.owner_id
-        WHERE p.short_id = $1"#,
-        &id.to_string()
-    )
-    .map(|record| ProfileMetadata {
-        short_id: id.clone(),
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-        owner: User {
-            id: record.owner_id,
-            name: record.owner_name,
-            display_name: record.owner_display_name,
-            avatar: record.avatar,
-            discord_id: record.discord_id,
-        },
-        manifest: ProfileManifest {
-            profile_name: record.name,
-            community: record.community,
-            mods: record.mods.0,
-        },
-    })
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    let profile = crate::profile::get(&state, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     Ok(Json(profile))
 }

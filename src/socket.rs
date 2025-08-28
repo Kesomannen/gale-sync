@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use axum::extract::ws::{self, WebSocket};
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -17,8 +17,8 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{
-    profile::{ProfileId, ProfileMetadata},
-    RedisConn,
+    profile::{self, ProfileId, ProfileMetadata},
+    AppState, RedisConn,
 };
 
 const PROFILE_UPDATE: &str = "profile-update";
@@ -42,42 +42,37 @@ impl State {
         state
     }
 
-    pub async fn notify_profile_updated(
-        &self,
-        redis: &mut RedisConn,
-        metadata: &ProfileMetadata,
-    ) -> anyhow::Result<()> {
+    pub fn notify_profile_updated(&self, redis: RedisConn, metadata: &ProfileMetadata) {
         self.notify_redis(
             redis,
             format!("{PROFILE_UPDATE}:{}", metadata.short_id),
             metadata,
         )
-        .await
     }
 
-    pub async fn notify_profile_deleted(
-        &self,
-        redis: &mut RedisConn,
-        id: &ProfileId,
-    ) -> anyhow::Result<()> {
+    pub fn notify_profile_deleted(&self, redis: RedisConn, id: &ProfileId) {
         self.notify_redis(redis, format!("{PROFILE_DELETE}:{id}",), id)
-            .await
     }
 
-    async fn notify_redis<T: Serialize>(
-        &self,
-        redis: &mut RedisConn,
-        channel: String,
-        payload: &T,
-    ) -> anyhow::Result<()> {
-        let json = serde_json::to_string(payload).context("failed to serialize event payload")?;
+    fn notify_redis<T: Serialize>(&self, mut redis: RedisConn, channel: String, payload: &T) {
+        let json = match serde_json::to_string(payload) {
+            Ok(str) => str,
+            Err(err) => {
+                error!("failed to serailize event payload: {err}");
+                return;
+            }
+        };
 
-        redis::cmd("PUBLISH")
-            .arg(&[channel, json])
-            .query_async::<()>(redis)
-            .await?;
+        tokio::spawn(async move {
+            let result = redis::cmd("PUBLISH")
+                .arg(&[channel, json])
+                .query_async::<()>(&mut redis)
+                .await;
 
-        Ok(())
+            if let Err(err) = result {
+                error!("failed to publish redis message: {err}");
+            }
+        });
     }
 
     fn notify_local(listeners: &mut ListenerMap, profile_id: &ProfileId, message: ServerMessage) {
@@ -128,6 +123,7 @@ impl Hash for Listener {
 enum ServerMessage {
     ProfileUpdated { metadata: ProfileMetadata },
     ProfileDeleted { id: ProfileId },
+    ProfileNotFound { id: ProfileId },
     Error { message: Cow<'static, str> },
 }
 
@@ -141,7 +137,7 @@ enum ClientMessage {
     Unsubscribe { profile_id: ProfileId },
 }
 
-pub(crate) async fn handle(socket: WebSocket, state: State) {
+pub(crate) async fn handle(socket: WebSocket, state: AppState) {
     let (sender, receiver) = socket.split();
     let (tx, rx) = mpsc::unbounded_channel();
 
@@ -149,13 +145,13 @@ pub(crate) async fn handle(socket: WebSocket, state: State) {
     tokio::spawn(read(receiver, Listener::new(tx), state));
 }
 
-async fn read(receiver: SplitStream<WebSocket>, listener: Listener, state: State) {
+async fn read(receiver: SplitStream<WebSocket>, listener: Listener, state: AppState) {
     match read_inner(receiver, &listener, &state).await {
         Ok(close_reason) => info!("stopping socket read task: {close_reason}"),
         Err(err) => warn!("error running socket read task, stopping: {err}"),
     };
 
-    let mut listeners = state.listeners.lock().unwrap();
+    let mut listeners = state.sockets.listeners.lock().unwrap();
 
     for set in listeners.values_mut() {
         set.remove(&listener);
@@ -165,7 +161,7 @@ async fn read(receiver: SplitStream<WebSocket>, listener: Listener, state: State
 async fn read_inner(
     mut receiver: SplitStream<WebSocket>,
     listener: &Listener,
-    state: &State,
+    state: &AppState,
 ) -> anyhow::Result<&'static str> {
     while let Some(item) = receiver.next().await {
         let item = item?;
@@ -183,17 +179,22 @@ async fn read_inner(
 
         let response = match serde_json::from_str::<ClientMessage>(text.as_ref()) {
             Ok(ClientMessage::Subscribe { profile_id }) => {
-                let mut listeners = state.listeners.lock().unwrap();
+                match profile::get(state, &profile_id).await? {
+                    Some(metadata) => {
+                        let mut listeners = state.sockets.listeners.lock().unwrap();
 
-                listeners
-                    .entry(profile_id)
-                    .or_default()
-                    .insert(listener.clone());
+                        listeners
+                            .entry(profile_id)
+                            .or_default()
+                            .insert(listener.clone());
 
-                None
+                        Some(ServerMessage::ProfileUpdated { metadata })
+                    }
+                    None => Some(ServerMessage::ProfileNotFound { id: profile_id }),
+                }
             }
             Ok(ClientMessage::Unsubscribe { profile_id }) => {
-                let mut listeners = state.listeners.lock().unwrap();
+                let mut listeners = state.sockets.listeners.lock().unwrap();
 
                 listeners.entry(profile_id).or_default().remove(listener);
 

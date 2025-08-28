@@ -11,7 +11,7 @@ use sqlx::{
     Encode, Postgres, Type,
 };
 
-use crate::{auth::User, error::AppError, short_uuid::ShortUuid};
+use crate::{auth::User, prelude::*, short_uuid::ShortUuid, AppState};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(try_from = "String", into = "String")]
@@ -140,4 +140,45 @@ pub struct ProfileMetadata {
     pub updated_at: DateTime<Utc>,
     pub owner: User,
     pub manifest: ProfileManifest,
+}
+
+pub async fn get(state: &AppState, id: &ProfileId) -> AppResult<Option<ProfileMetadata>> {
+    let profile = sqlx::query!(
+        r#"SELECT
+            p.name,
+            p.community,
+            p.mods AS "mods: sqlx::types::Json<Vec<ProfileMod>>",
+            p.created_at,
+            p.updated_at,
+            u.id AS "owner_id",
+            u.name AS "owner_name",
+            u.display_name AS "owner_display_name",
+            u.avatar,
+            u.discord_id
+        FROM profiles p
+        JOIN users u ON u.id = p.owner_id
+        WHERE p.short_id = $1"#,
+        &id.to_string()
+    )
+    .map(|record| ProfileMetadata {
+        short_id: id.clone(),
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        owner: User {
+            id: record.owner_id,
+            name: record.owner_name,
+            display_name: record.owner_display_name,
+            avatar: record.avatar,
+            discord_id: record.discord_id,
+        },
+        manifest: ProfileManifest {
+            profile_name: record.name,
+            community: record.community,
+            mods: record.mods.0,
+        },
+    })
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(profile)
 }
