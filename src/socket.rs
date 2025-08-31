@@ -179,18 +179,17 @@ async fn read_inner(
 
         let response = match serde_json::from_str::<ClientMessage>(text.as_ref()) {
             Ok(ClientMessage::Subscribe { profile_id }) => {
-                match profile::get(state, &profile_id).await? {
-                    Some(metadata) => {
-                        let mut listeners = state.sockets.listeners.lock().unwrap();
+                if profile::exists(state, &profile_id).await? {
+                    let mut listeners = state.sockets.listeners.lock().unwrap();
 
-                        listeners
-                            .entry(profile_id)
-                            .or_default()
-                            .insert(listener.clone());
+                    listeners
+                        .entry(profile_id)
+                        .or_default()
+                        .insert(listener.clone());
 
-                        Some(ServerMessage::ProfileUpdated { metadata })
-                    }
-                    None => Some(ServerMessage::ProfileNotFound { id: profile_id }),
+                    None
+                } else {
+                    Some(ServerMessage::ProfileNotFound { id: profile_id })
                 }
             }
             Ok(ClientMessage::Unsubscribe { profile_id }) => {

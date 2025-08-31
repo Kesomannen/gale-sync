@@ -182,3 +182,14 @@ pub async fn get(state: &AppState, id: &ProfileId) -> AppResult<Option<ProfileMe
 
     Ok(profile)
 }
+
+pub async fn exists(state: &AppState, id: &ProfileId) -> AppResult<bool> {
+    let result = sqlx::query!(
+        "SELECT COUNT(1) FROM profiles p WHERE p.short_id = $1",
+        &id.to_string()
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(result.count.is_some_and(|c| c > 0))
+}
