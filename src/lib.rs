@@ -10,14 +10,12 @@ mod redirect;
 mod routes;
 mod short_uuid;
 pub mod socket;
-pub mod storage;
 
 type RedisConn = redis::aio::MultiplexedConnection;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub storage: storage::Client,
     pub http: reqwest::Client,
     pub discord_client_id: Arc<str>,
     pub discord_client_secret: Arc<str>,

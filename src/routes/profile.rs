@@ -1,28 +1,27 @@
 use std::{
-    fmt::Display,
-    future::Future,
-    io::{Cursor, Read, Seek},
+    collections::HashMap,
+    ffi::OsStr,
+    io::{Cursor, Read, Seek, Write},
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{DefaultBodyLimit, Path, State},
-    response::Redirect,
+    response::Response,
     routing::{get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use http::StatusCode;
+use http::{HeaderValue, StatusCode};
 use rand::Rng;
 use serde::Serialize;
-use sqlx::Postgres;
-use zip::ZipArchive;
+use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 use crate::{
     auth::{self, AuthUser},
     prelude::*,
-    profile::{ProfileId, ProfileManifest, ProfileMetadata},
+    profile::{ProfileId, ProfileManifest, ProfileMetadata, ProfileMod},
 };
 
 const SIZE_LIMIT: usize = 2 * 1024 * 1024;
@@ -57,7 +56,7 @@ async fn create_profile(
 ) -> AppResult<(StatusCode, Json<CreateProfileResponse>)> {
     let id = generate_id(&state).await?;
 
-    let profile = upload_profile(id, &user, body, true, &mut state).await?;
+    let profile = upload_profile(id, &user, body, &mut state).await?;
 
     Ok((StatusCode::CREATED, Json(profile)))
 }
@@ -70,7 +69,7 @@ async fn update_profile(
 ) -> AppResult<Json<CreateProfileResponse>> {
     check_permission(&id, &user, &state).await?;
 
-    let profile = upload_profile(id, &user, body, false, &mut state).await?;
+    let profile = upload_profile(id, &user, body, &mut state).await?;
 
     Ok(Json(profile))
 }
@@ -92,7 +91,7 @@ async fn delete_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    commit_s3_tx(tx, state.storage.delete(storage_key(&id))).await?;
+    tx.commit().await?;
 
     state
         .sockets
@@ -105,28 +104,31 @@ async fn upload_profile(
     id: ProfileId,
     user: &auth::User,
     body: Bytes,
-    post: bool,
     state: &mut AppState,
 ) -> Result<CreateProfileResponse, AppError> {
     let cursor = Cursor::new(body.clone());
     // reading the zip file could be intensive
-    let manifest = tokio::task::spawn_blocking(|| read_manifest(cursor))
+    let (manifest, configs) = tokio::task::spawn_blocking(|| read_manifest(cursor))
         .await
         .map_err(|err| anyhow!(err))??;
 
     let mods_json = serde_json::to_value(&manifest.mods)
         .map_err(|err| anyhow!("failed to serialize mods: {err}"))?;
 
+    let configs_json = serde_json::to_value(&configs)
+        .map_err(|err| anyhow!("failed to serialize configs: {err}"))?;
+
     let mut tx = state.db.begin().await?;
 
     let profile = sqlx::query_as!(
         CreateProfileResponse,
-        r#"INSERT INTO profiles (short_id, owner_id, name, community, mods)
-        VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO profiles (short_id, owner_id, name, community, mods, configs)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT(short_id)
         DO UPDATE SET
             name = EXCLUDED.name,
             mods = EXCLUDED.mods,
+            configs = EXCLUDED.configs,
             updated_at = NOW()
         RETURNING
             short_id AS "short_id: ProfileId", 
@@ -136,18 +138,13 @@ async fn upload_profile(
         user.id,
         manifest.profile_name,
         manifest.community,
-        mods_json
+        mods_json,
+        configs_json
     )
     .fetch_one(&mut *tx)
     .await?;
 
-    commit_s3_tx(
-        tx,
-        state
-            .storage
-            .upload(storage_key(&profile.short_id), body, post),
-    )
-    .await?;
+    tx.commit().await?;
 
     state.sockets.notify_profile_updated(
         state.redis.clone(),
@@ -163,40 +160,56 @@ async fn upload_profile(
     Ok(profile)
 }
 
-fn read_manifest(input: impl Read + Seek) -> AppResult<ProfileManifest> {
+const ALLOWED_EXTENSIONS: &[&str] = &["cfg", "txt", "json", "yml", "yaml", "ini", "xml"];
+
+fn read_manifest(input: impl Read + Seek) -> AppResult<(ProfileManifest, HashMap<String, String>)> {
     let mut input_zip = ZipArchive::new(input)
         .map_err(|err| AppError::bad_request(format!("Invalid ZIP archive: {err}")))?;
 
-    let manifest = input_zip
-        .by_name("export.r2x")
-        .map_err(|_| AppError::bad_request("Invalid ZIP archive: export.r2x file is missing"))?;
-
-    let manifest: ProfileManifest = serde_yml::from_reader(manifest)
-        .map_err(|err| AppError::bad_request(format!("Error parsing export.r2x: {err}")))?;
-
-    // maybe re-encode the zip if its not compressed?
-    // also check for unusual file extensions
-
-    /*
-    let mut output = Vec::new();
-    let mut output_zip = ZipWriter::new(Cursor::new(&mut output));
-
-    let opts = FileOptions::<'_, ()>::default()
-        .compression_method(zip::CompressionMethod::Deflated)
-        .compression_level(Some(6));
+    let mut files = HashMap::new();
+    let mut manifest = None;
 
     for i in 0..input_zip.len() {
-        let mut file = input_zip.by_index(i).context("failed to read file")?;
+        let mut file = input_zip
+            .by_index(i)
+            .context("failed to open file in zip")?;
 
-        output_zip
-            .start_file(file.name(), opts)
-            .context("failed to start file")?;
+        let Some(path) = file.enclosed_name() else {
+            return Err(AppError::bad_request(format!(
+                "File at {} escapes ZIP archive.",
+                file.name()
+            )));
+        };
 
-        std::io::copy(&mut file, &mut output_zip).context("failed to re-encode file")?;
+        if file.name() == "export.r2x" {
+            manifest = Some(
+                serde_yml::from_reader::<_, ProfileManifest>(file).map_err(|err| {
+                    AppError::bad_request(format!("Error parsing export.r2x: {err}"))
+                })?,
+            );
+        } else {
+            if !path
+                .extension()
+                .and_then(OsStr::to_str)
+                .is_some_and(|ext| ALLOWED_EXTENSIONS.contains(&ext))
+            {
+                return Err(AppError::bad_request(format!(
+                    "File at {} has a forbidden extension.",
+                    path.display()
+                )));
+            }
+
+            let mut str = String::with_capacity(file.size() as usize);
+            file.read_to_string(&mut str)
+                .context("failed to read file in zip")?;
+
+            files.insert(file.name().to_string(), str);
+        }
     }
-    */
 
-    Ok(manifest)
+    let manifest = manifest.ok_or_else(|| AppError::bad_request("Profile manifest is missing."))?;
+
+    Ok((manifest, files))
 }
 
 async fn check_permission(
@@ -221,51 +234,59 @@ async fn check_permission(
     }
 }
 
-/// This makes sure an s3 operation and a database transaction
-/// happens atomically (by rolling back the db if s3 failed).
-///
-/// It's not perfect, since if the final database commit fails
-/// s3 will still go through.
-async fn commit_s3_tx<T, Fut>(tx: sqlx::Transaction<'_, Postgres>, s3: Fut) -> AppResult<T>
-where
-    Fut: Future<Output = AppResult<T>>,
-{
-    match s3.await {
-        Ok(res) => {
-            tx.commit().await?;
-            Ok(res)
-        }
-        Err(err) => {
-            tx.rollback().await?;
-            Err(anyhow!("Storage error: {err}").into())
-        }
-    }
-}
-
 async fn download_profile(
     Path(id): Path<ProfileId>,
     State(state): State<AppState>,
-) -> AppResult<Redirect> {
+) -> AppResult<Response> {
     let profile = sqlx::query!(
-        "UPDATE profiles
+        r#"UPDATE profiles
             SET downloads = downloads + 1
         WHERE short_id = $1
-        RETURNING updated_at",
+        RETURNING
+            name,
+            community,
+            mods AS "mods: sqlx::types::Json<Vec<ProfileMod>>",
+            configs AS "configs: sqlx::types::Json<HashMap<String, String>>",
+            updated_at"#,
         &*id.as_str()
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    // Include a versioned query param to make sure we aren't getting
-    // an already cached old version
-    let url = state.storage.object_url(format!(
-        "{}?v={}",
-        storage_key(&id),
-        profile.updated_at.timestamp()
-    ));
+    let mut writer = Cursor::new(Vec::new());
 
-    Ok(Redirect::to(&url))
+    {
+        let mut zip = ZipWriter::new(&mut writer);
+
+        let manifest = ProfileManifest {
+            profile_name: profile.name,
+            community: profile.community,
+            mods: profile.mods.0,
+        };
+
+        zip.start_file("export.r2x", SimpleFileOptions::default())
+            .context("failed to start writing manifest")?;
+        serde_yml::to_writer(&mut zip, &manifest).context("error writing manifest")?;
+
+        if let Some(configs) = profile.configs {
+            for (path, content) in configs.0 {
+                zip.start_file(&path, SimpleFileOptions::default())
+                    .with_context(|| format!("failed to start writing config file at {path}"))?;
+
+                zip.write_all(content.as_bytes())
+                    .with_context(|| format!("error writing config file at {path}"))?;
+            }
+        }
+    }
+
+    let mut response = Response::new(Body::from(writer.into_inner()));
+
+    response
+        .headers_mut()
+        .append("Content-Type", HeaderValue::from_static("application/zip"));
+
+    Ok(response)
 }
 
 async fn get_profile_metadata(
@@ -301,20 +322,8 @@ async fn generate_id(state: &AppState) -> AppResult<ProfileId> {
         .exists
         .unwrap_or(true);
 
-        if exists {
-            continue;
+        if !exists {
+            return Ok(ProfileId::Short(id));
         }
-
-        return Ok(ProfileId::Short(id));
     }
-}
-
-fn storage_key(id: &ProfileId) -> String {
-    format!(
-        "profile/{}.zip",
-        match id {
-            ProfileId::Legacy(short_uuid) => &short_uuid.0 as &dyn Display,
-            ProfileId::Short(short) => short,
-        }
-    )
 }

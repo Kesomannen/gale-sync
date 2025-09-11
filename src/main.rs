@@ -44,17 +44,9 @@ async fn main() -> anyhow::Result<()> {
 
     let http = reqwest::Client::new();
 
-    let storage = gale_sync::storage::Client::new(
-        env_var_arc("STORAGE_BUCKET_NAME")?,
-        env_var_arc("SUPABASE_API_KEY")?,
-        format!("{}/storage/v1", env_var("SUPABASE_URL")?).into(),
-        http.clone(),
-    );
-
     let state = AppState {
         db,
         http,
-        storage,
         discord_client_id: env_var_arc("DISCORD_CLIENT_ID")?,
         discord_client_secret: env_var_arc("DISCORD_CLIENT_SECRET")?,
         jwt_secret: env_var_arc("JWT_SECRET")?,
