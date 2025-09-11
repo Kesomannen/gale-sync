@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE profiles\n            SET downloads = downloads + 1\n        WHERE short_id = $1\n        RETURNING\n            name,\n            community,\n            mods AS \"mods: sqlx::types::Json<Vec<ProfileMod>>\",\n            configs AS \"configs: sqlx::types::Json<HashMap<String, String>>\",\n            updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "community",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "mods: sqlx::types::Json<Vec<ProfileMod>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "configs: sqlx::types::Json<HashMap<String, String>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5312614f29c6826a779b9fd96aa2b2933e7a6d194acad182727de59fcd8f031e"
+}
