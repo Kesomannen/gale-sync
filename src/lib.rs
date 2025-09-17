@@ -5,6 +5,7 @@ use sqlx::PgPool;
 
 mod auth;
 mod error;
+pub mod migrate;
 mod profile;
 mod redirect;
 mod routes;

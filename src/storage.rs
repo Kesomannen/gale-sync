@@ -1,8 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
+use axum::body::Bytes;
 use http::Method;
-
-use crate::prelude::*;
 
 /// A client to interact with the Supabase storage API.
 ///
@@ -39,30 +38,15 @@ impl Client {
         self.http.request(method, url).bearer_auth(&*self.api_key)
     }
 
-    pub(crate) async fn upload(
-        &self,
-        key: impl Display,
-        body: impl Into<reqwest::Body>,
-        post: bool,
-    ) -> AppResult<()> {
-        let method = if post { Method::POST } else { Method::PUT };
-
-        self.request(self.object_path(key), method)
-            .body(body)
+    pub(crate) async fn download(&self, key: impl Display) -> anyhow::Result<Bytes> {
+        let bytes = self
+            .request(self.object_path(key), Method::GET)
             .send()
             .await?
-            .error_for_status()?;
-
-        Ok(())
-    }
-
-    pub(crate) async fn delete(&self, key: impl Display) -> AppResult<()> {
-        self.request(self.object_path(key), Method::DELETE)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        Ok(())
+            .error_for_status()?
+            .bytes()
+            .await?;
+        Ok(bytes)
     }
 
     pub(crate) fn object_url(&self, key: impl Display) -> String {

@@ -1,6 +1,8 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{borrow::Cow, fmt::Display, time::Duration};
 
+use axum::body::Bytes;
 use chrono::{DateTime, Utc};
+use http::StatusCode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{
@@ -10,6 +12,8 @@ use sqlx::{
     prelude::*,
     Encode, Postgres, Type,
 };
+use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::{auth::User, prelude::*, short_uuid::ShortUuid, AppState};
 
@@ -192,4 +196,60 @@ pub async fn exists(state: &AppState, id: &ProfileId) -> AppResult<bool> {
     .await?;
 
     Ok(result.count.is_some_and(|c| c > 0))
+}
+
+#[derive(Debug, Deserialize)]
+struct CodeResponse {
+    key: Uuid,
+}
+
+pub async fn upload(state: &AppState, body: Bytes) -> AppResult<Uuid> {
+    let mut retries = 0;
+
+    loop {
+        let response = state
+            .http
+            .post("https://thunderstore.io/api/experimental/legacyprofile/create/")
+            .body(body.clone())
+            .send()
+            .await?;
+
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            if retries >= 10 {
+                error!("max retries reached!");
+            }
+
+            info!("request failed, retrying for {}th time", retries + 1);
+
+            let wait_time: u64 = response
+                .headers()
+                .get("Retry-After")
+                .and_then(|value| value.to_str().ok().and_then(|str| str.parse().ok()))
+                .unwrap_or_else(|| {
+                    let seconds = 2u64.pow(retries);
+                    warn!("response didn't include Retry-After");
+                    seconds
+                });
+
+            info!("waiting for {wait_time} seconds");
+
+            tokio::time::sleep(Duration::from_secs(wait_time)).await;
+
+            retries += 1;
+        } else {
+            let response: CodeResponse = response.error_for_status()?.json().await?;
+
+            return Ok(response.key);
+        }
+    }
+}
+
+pub fn storage_key(id: &ProfileId) -> String {
+    format!(
+        "profile/{}.zip",
+        match id {
+            ProfileId::Legacy(short_uuid) => &short_uuid.0 as &dyn Display,
+            ProfileId::Short(short) => short,
+        }
+    )
 }

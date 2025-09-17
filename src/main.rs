@@ -62,6 +62,10 @@ async fn main() -> anyhow::Result<()> {
         redis,
     };
 
+    if env::args().into_iter().nth(1).as_deref() == Some("--migrate") {
+        gale_sync::migrate::migrate(&state).await?;
+    }
+
     let app = Router::new()
         .nest("/api", gale_sync::routes(state))
         .fallback_service(ServeDir::new("public"))
