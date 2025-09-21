@@ -20,7 +20,7 @@ use crate::{
     profile::{self, ProfileId, ProfileManifest, ProfileMetadata},
 };
 
-const SIZE_LIMIT: usize = 2 * 1024 * 1024;
+const SIZE_LIMIT: usize = 10 * 1024 * 1024;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
