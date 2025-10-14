@@ -78,6 +78,8 @@ async fn delete_profile(
     .await?
     .ok_or(AppError::NotFound)?;
 
+    tx.commit().await?;
+
     state
         .sockets
         .notify_profile_deleted(state.redis.clone(), &id);
