@@ -49,7 +49,7 @@ impl Client {
         Ok(bytes)
     }
 
-    pub(crate) fn object_url(&self, key: impl Display) -> String {
-        format!("{}{}", self.base_url, self.object_path(key))
-    }
+    // pub(crate) fn object_url(&self, key: impl Display) -> String {
+    //     format!("{}{}", self.base_url, self.object_path(key))
+    // }
 }

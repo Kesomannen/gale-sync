@@ -6,19 +6,22 @@ use std::{
 };
 
 use anyhow::bail;
-use axum::extract::ws::{self, WebSocket};
+use axum::{
+    body::Bytes,
+    extract::ws::{self, WebSocket},
+};
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::{
     profile::{self, ProfileId, ProfileMetadata},
-    AppState, RedisConn,
+    AppState, Redis,
 };
 
 const PROFILE_UPDATE: &str = "profile-update";
@@ -27,11 +30,11 @@ const PROFILE_DELETE: &str = "profile-delete";
 type ListenerMap = HashMap<ProfileId, HashSet<Listener>>;
 
 #[derive(Clone)]
-pub struct State {
+pub struct SocketState {
     listeners: Arc<Mutex<ListenerMap>>,
 }
 
-impl State {
+impl SocketState {
     pub fn new(redis: mpsc::UnboundedReceiver<redis::PushInfo>) -> Self {
         let state = Self {
             listeners: Default::default(),
@@ -42,7 +45,7 @@ impl State {
         state
     }
 
-    pub fn notify_profile_updated(&self, redis: RedisConn, metadata: &ProfileMetadata) {
+    pub fn notify_profile_updated(&self, redis: Redis, metadata: &ProfileMetadata) {
         self.notify_redis(
             redis,
             format!("{PROFILE_UPDATE}:{}", metadata.short_id),
@@ -50,15 +53,15 @@ impl State {
         )
     }
 
-    pub fn notify_profile_deleted(&self, redis: RedisConn, id: &ProfileId) {
+    pub fn notify_profile_deleted(&self, redis: Redis, id: &ProfileId) {
         self.notify_redis(redis, format!("{PROFILE_DELETE}:{id}",), id)
     }
 
-    fn notify_redis<T: Serialize>(&self, mut redis: RedisConn, channel: String, payload: &T) {
+    fn notify_redis<T: Serialize>(&self, mut redis: Redis, channel: String, payload: &T) {
         let json = match serde_json::to_string(payload) {
             Ok(str) => str,
             Err(err) => {
-                error!("failed to serailize event payload: {err}");
+                error!(?err, "failed to serailize redis event payload");
                 return;
             }
         };
@@ -70,20 +73,24 @@ impl State {
                 .await;
 
             if let Err(err) = result {
-                error!("failed to publish redis message: {err}");
+                error!(?err, "failed to publish redis message");
             }
         });
     }
 
     fn notify_local(listeners: &mut ListenerMap, profile_id: &ProfileId, message: ServerMessage) {
-        if let Some(set) = listeners.get(profile_id) {
-            for listener in set {
-                if listener.tx.send(message.clone()).is_err() {
-                    warn!(
-                        "failed to send profile changed message to listener {}",
-                        listener.uuid
-                    );
-                }
+        let Some(set) = listeners.get(profile_id) else {
+            debug!("no listeners for profile {profile_id}");
+            return;
+        };
+
+        for listener in set {
+            if listener.tx.try_send(message.clone()).is_err() {
+                warn!(
+                    %profile_id,
+                    listener_id = ?listener.uuid,
+                    "failed to send message to listener",
+                );
             }
         }
     }
@@ -92,14 +99,28 @@ impl State {
 #[derive(Debug, Clone)]
 struct Listener {
     uuid: Uuid,
-    tx: mpsc::UnboundedSender<ServerMessage>,
+    tx: mpsc::Sender<ServerMessage>,
 }
 
 impl Listener {
-    fn new(tx: mpsc::UnboundedSender<ServerMessage>) -> Self {
+    fn new(tx: mpsc::Sender<ServerMessage>) -> Self {
         Self {
             uuid: Uuid::new_v4(),
             tx,
+        }
+    }
+
+    fn try_send(&self, message: ServerMessage) -> anyhow::Result<()> {
+        match self.tx.try_send(message) {
+            Ok(_) => Ok(()),
+            Err(mpsc::error::TrySendError::Closed(_)) => bail!("listener channel closed"),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!(
+                    listener_id = ?self.uuid,
+                    "failed to send message to listener: channel full, dropping message",
+                );
+                Ok(())
+            }
         }
     }
 }
@@ -119,27 +140,44 @@ impl Hash for Listener {
 }
 
 #[derive(Debug, Serialize, Clone)]
-#[serde(tag = "event", content = "payload", rename_all = "camelCase")]
+#[serde(
+    tag = "event",
+    content = "payload",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 enum ServerMessage {
-    ProfileUpdated { metadata: ProfileMetadata },
-    ProfileDeleted { id: ProfileId },
-    ProfileNotFound { id: ProfileId },
-    Error { message: Cow<'static, str> },
+    ProfileUpdated {
+        metadata: ProfileMetadata,
+    },
+    ProfileDeleted {
+        id: ProfileId,
+    },
+    ProfileNotFound {
+        id: ProfileId,
+    },
+    Error {
+        message: Cow<'static, str>,
+    },
+    #[serde(skip_serializing)]
+    Pong(Bytes),
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "event", content = "payload", rename_all = "camelCase")]
+#[serde(
+    tag = "event",
+    content = "payload",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 enum ClientMessage {
-    #[serde(rename_all = "camelCase")]
     Subscribe { profile_id: ProfileId },
-
-    #[serde(rename_all = "camelCase")]
     Unsubscribe { profile_id: ProfileId },
 }
 
-pub(crate) async fn handle(socket: WebSocket, state: AppState) {
+pub(crate) fn handle_connection(socket: WebSocket, state: AppState) {
     let (sender, receiver) = socket.split();
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(16);
 
     tokio::spawn(write(sender, rx));
     tokio::spawn(read(receiver, Listener::new(tx), state));
@@ -147,7 +185,7 @@ pub(crate) async fn handle(socket: WebSocket, state: AppState) {
 
 async fn read(receiver: SplitStream<WebSocket>, listener: Listener, state: AppState) {
     match read_inner(receiver, &listener, &state).await {
-        Ok(close_reason) => info!("stopping socket read task: {close_reason}"),
+        Ok(_) => (),
         Err(err) => warn!("error running socket read task, stopping: {err}"),
     };
 
@@ -162,85 +200,126 @@ async fn read_inner(
     mut receiver: SplitStream<WebSocket>,
     listener: &Listener,
     state: &AppState,
-) -> anyhow::Result<&'static str> {
+) -> anyhow::Result<()> {
     while let Some(item) = receiver.next().await {
         let item = item?;
 
-        let text = match item {
-            ws::Message::Text(utf8_bytes) => utf8_bytes,
-            ws::Message::Close(_) => {
-                return Ok("close message received");
+        match item {
+            ws::Message::Text(text) => {
+                handle_text_message(listener, state, text).await?;
             }
-            other => {
-                warn!("received unexpected message: {other:?}");
+            ws::Message::Ping(ping) => {
+                handle_ping(listener, ping).await?;
+            }
+            ws::Message::Close(close) => {
+                debug!(?close, "socket closed");
+                return Ok(());
+            }
+            msg => {
+                debug!(?msg, "received unexpected message");
                 continue;
             }
         };
+    }
 
-        let response = match serde_json::from_str::<ClientMessage>(text.as_ref()) {
-            Ok(ClientMessage::Subscribe { profile_id }) => {
-                if profile::exists(state, &profile_id).await? {
-                    let mut listeners = state.sockets.listeners.lock().unwrap();
+    Ok(())
+}
 
-                    listeners
-                        .entry(profile_id)
-                        .or_default()
-                        .insert(listener.clone());
+async fn handle_text_message(
+    listener: &Listener,
+    state: &AppState,
+    text: ws::Utf8Bytes,
+) -> Result<(), anyhow::Error> {
+    let response = match serde_json::from_str::<ClientMessage>(text.as_ref()) {
+        Ok(msg) => handle_client_message(listener, state, msg).await?,
+        Err(err) => {
+            let response = ServerMessage::Error {
+                message: format!("Failed to deserialize message: {err}.").into(),
+            };
 
-                    None
-                } else {
-                    Some(ServerMessage::ProfileNotFound { id: profile_id })
-                }
+            Some(response)
+        }
+    };
+
+    if let Some(response) = response {
+        match listener.tx.try_send(response) {
+            Ok(_) => (),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                bail!("listener channel closed");
             }
-            Ok(ClientMessage::Unsubscribe { profile_id }) => {
-                let mut listeners = state.sockets.listeners.lock().unwrap();
-
-                listeners.entry(profile_id).or_default().remove(listener);
-
-                None
-            }
-            Err(err) => {
-                let response = ServerMessage::Error {
-                    message: format!("Failed to deserialize message: {err}.").into(),
-                };
-
-                Some(response)
-            }
-        };
-
-        if let Some(response) = response {
-            if listener.tx.send(response).is_err() {
-                bail!("send channel closed");
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!("failed to send response message to socket: channel full");
             }
         }
     }
 
-    Ok("socket closed")
+    Ok(())
+}
+
+async fn handle_client_message(
+    listener: &Listener,
+    state: &AppState,
+    msg: ClientMessage,
+) -> anyhow::Result<Option<ServerMessage>> {
+    match msg {
+        ClientMessage::Subscribe { profile_id } => {
+            if profile::exists(state, &profile_id).await? {
+                let mut listeners = state.sockets.listeners.lock().unwrap();
+
+                listeners
+                    .entry(profile_id)
+                    .or_default()
+                    .insert(listener.clone());
+
+                Ok(None)
+            } else {
+                Ok(Some(ServerMessage::ProfileNotFound { id: profile_id }))
+            }
+        }
+        ClientMessage::Unsubscribe { profile_id } => {
+            let mut listeners = state.sockets.listeners.lock().unwrap();
+
+            listeners.entry(profile_id).or_default().remove(listener);
+
+            Ok(None)
+        }
+    }
+}
+
+async fn handle_ping(listener: &Listener, ping: Bytes) -> anyhow::Result<()> {
+    debug!("received ping, sending pong");
+
+    listener.try_send(ServerMessage::Pong(ping))?;
+
+    Ok(())
 }
 
 async fn write(
     mut sender: SplitSink<WebSocket, ws::Message>,
-    mut rx: mpsc::UnboundedReceiver<ServerMessage>,
+    mut rx: mpsc::Receiver<ServerMessage>,
 ) {
     while let Some(msg) = rx.recv().await {
-        let msg = match serde_json::to_string(&msg) {
-            Ok(str) => ws::Message::Text(str.into()),
-            Err(err) => {
-                error!("stopping socket write task: failed to serialize socket message: {err}");
-                continue;
-            }
+        let msg = match msg {
+            ServerMessage::Pong(bytes) => ws::Message::Pong(bytes),
+            _ => match serde_json::to_string(&msg) {
+                Ok(str) => ws::Message::Text(str.into()),
+                Err(err) => {
+                    error!(?err, "failed to serialize message, dropping message");
+                    continue;
+                }
+            },
         };
 
         if let Err(err) = sender.send(msg).await {
-            warn!("stopping socket write task: transmit error: {err}");
+            error!(?err, "transmit error: stopping socket write task");
             return;
         }
     }
 
-    debug!("stopping socket write task: channel was closed")
+    debug!("channel was closed: stopping socket write task");
 }
 
-async fn handle_redis(state: State, mut redis: mpsc::UnboundedReceiver<redis::PushInfo>) {
+async fn handle_redis(state: SocketState, mut redis: mpsc::UnboundedReceiver<redis::PushInfo>) {
     while let Some(msg) = redis.recv().await {
         if let Err(err) = handle_redis_message(&state, msg).await {
             error!("failed to handle redis message: {err}");
@@ -248,7 +327,7 @@ async fn handle_redis(state: State, mut redis: mpsc::UnboundedReceiver<redis::Pu
     }
 }
 
-async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Result<()> {
+async fn handle_redis_message(state: &SocketState, msg: redis::PushInfo) -> anyhow::Result<()> {
     if msg.kind != redis::PushKind::PMessage {
         return Ok(());
     }
@@ -280,7 +359,7 @@ async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Re
         PROFILE_UPDATE => {
             let metadata: ProfileMetadata = serde_json::from_str(&payload)?;
 
-            State::notify_local(
+            SocketState::notify_local(
                 &mut listeners,
                 &profile_id,
                 ServerMessage::ProfileUpdated { metadata },
@@ -289,7 +368,7 @@ async fn handle_redis_message(state: &State, msg: redis::PushInfo) -> anyhow::Re
         PROFILE_DELETE => {
             let id: ProfileId = serde_json::from_str(&payload)?;
 
-            State::notify_local(
+            SocketState::notify_local(
                 &mut listeners,
                 &profile_id,
                 ServerMessage::ProfileDeleted { id },

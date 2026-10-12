@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (db, redis) = tokio::try_join!(setup_db(), setup_redis(redis_tx))?;
 
-    let sockets = gale_sync::socket::State::new(redis_rx);
+    let sockets = gale_sync::socket::SocketState::new(redis_rx);
 
     let http = reqwest::Client::new();
 

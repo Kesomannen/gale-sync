@@ -12,5 +12,5 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn connect(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| crate::socket::handle(socket, state))
+    ws.on_upgrade(|socket| async { crate::socket::handle_connection(socket, state) })
 }
